@@ -32,15 +32,13 @@ export default function HomePage() {
               <Link className="btn" href="/solutions">
                 Find my solution
               </Link>
-              <a
-                href={SOCIAL_LINKS.clientPortal}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/dashboard"
                 className="btn btn-quiet hero-portal-btn"
               >
-                <span>Client Portal</span>
+                <span>Client Workspace</span>
                 <ExternalLink size={15} className="cyan" />
-              </a>
+              </Link>
             </div>
           </div>
 

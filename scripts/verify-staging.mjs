@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * ENGINE//OS — Staging Verification, Role Matrix & Multi-Tenant E2E Lifecycle Suite (V13.0)
+ * ENGINE//OS — Staging Verification, Role Matrix & Multi-Tenant E2E Lifecycle Suite (V14.0)
  * Platform: NOTREAL ENGINE, LLC
- * Directive: Master Directive V13.0 Sections 2, 3, 4, 8, 11
+ * Directive: Master Directive V14.0 Sections 2, 3, 4, 8, 11
  * Usage: npm run verify:staging
  */
 
@@ -139,7 +139,7 @@ const CANONICAL_TABLES = [
 
 async function runStagingVerification() {
   console.log("\n" + bold("=========================================================="));
-  console.log(bold("   ENGINE//OS — STAGING VERIFICATION SUITE (V13.0)"));
+  console.log(bold("   ENGINE//OS — STAGING VERIFICATION SUITE (V14.0)"));
   console.log(bold("==========================================================") + "\n");
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || `https://${APPROVED_STAGING_PROJECT_REF}.supabase.co`;
@@ -560,7 +560,16 @@ async function runStagingVerification() {
       ? "APPLIED"
       : "PENDING_FOUNDER_SQL_0006";
 
-    migration0006Audit.allObjectsAppliedInRemoteDb = sysEnvTableApplied && approveTermsRpcApplied;
+    const { error: setEnvRpcErr } = await adminClient.rpc("set_system_environment", {
+      p_environment: "staging",
+      p_allow_synthetic: true
+    });
+    const setEnvRpcApplied = Boolean(setEnvRpcErr === null || (setEnvRpcErr && !setEnvRpcErr.message.includes("Could not find the function")));
+    migration0006Audit.objects.set_system_environment_rpc = setEnvRpcApplied
+      ? "APPLIED"
+      : "PENDING_FOUNDER_SQL_0006";
+
+    migration0006Audit.allObjectsAppliedInRemoteDb = sysEnvTableApplied && approveTermsRpcApplied && setEnvRpcApplied;
 
     recordResult(
       "MigrationAudit",
@@ -617,6 +626,69 @@ async function runStagingVerification() {
 
     // Link brief to Org A
     await clientStaff.from("project_briefs").update({ organization_id: orgA.id, status: "quoted" }).eq("id", createdBriefId);
+
+    // 6.5b Omnichannel LeadConnector Inbound Webhook Pipeline Verification
+    const lcBriefRef = `LC-STG-${runTag.toUpperCase()}`;
+    const { data: lcBriefRow, error: lcBriefErr } = await adminClient
+      .from("project_briefs")
+      .insert({
+        reference: lcBriefRef,
+        service_id: "SVC-01-SPW",
+        contact_name: "Omnichannel LeadConnector Inbound",
+        contact_email: `leadconnector-${runTag}@notrealengine.online`,
+        contact_phone: "+17543202216",
+        organization_name: "Omnichannel Prospect Corp",
+        status: "submitted",
+        payload: {
+          event_type: "Appointment",
+          calendar_name: "Technical Discovery Call",
+          source: "leadconnector",
+          email: `leadconnector-${runTag}@notrealengine.online`
+        },
+        attribution: {
+          source: "leadconnector",
+          provider: "leadconnector",
+          providerReference: `APT-${runTag}`
+        }
+      })
+      .select("id")
+      .single();
+
+    if (!lcBriefErr && lcBriefRow?.id) {
+      cleanupAudit.trackedResources.projectBriefs.push(lcBriefRow.id);
+      const { data: lcLeadRow, error: lcLeadErr } = await adminClient
+        .from("leads")
+        .insert({
+          project_brief_id: lcBriefRow.id,
+          status: "new"
+        })
+        .select("id")
+        .single();
+
+      if (!lcLeadErr && lcLeadRow?.id) {
+        cleanupAudit.trackedResources.leads.push(lcLeadRow.id);
+        recordResult(
+          "Workflow",
+          "Omnichannel Inbound LeadConnector Persistence & Attribution",
+          "PASS",
+          `LeadConnector intake persisted (brief=${lcBriefRow.id}, lead=${lcLeadRow.id})`
+        );
+      } else {
+        recordResult(
+          "Workflow",
+          "Omnichannel Inbound LeadConnector Persistence & Attribution",
+          "FAIL",
+          lcLeadErr?.message || "Failed to persist omnichannel lead"
+        );
+      }
+    } else {
+      recordResult(
+        "Workflow",
+        "Omnichannel Inbound LeadConnector Persistence & Attribution",
+        "FAIL",
+        lcBriefErr?.message || "Failed to persist omnichannel brief"
+      );
+    }
 
     // 6.6 Commercial Terms Governance & Non-Binding Draft Terms Guard
     // Verify ordinary staff cannot set classification = 'approved_production'
@@ -1296,7 +1368,7 @@ function printSummaryAndExit() {
     metadata: {
       generatedAt: new Date().toISOString(),
       platform: "ENGINE//OS",
-      version: "13.0",
+      version: "14.0",
       target: `https://${APPROVED_STAGING_PROJECT_REF}.supabase.co`
     },
     testExecutionSummary: { passed, failed, blocked, skipped },

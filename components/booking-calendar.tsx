@@ -38,11 +38,11 @@ export function BookingCalendar({ compact = false }: BookingCalendarProps) {
         </div>
         <div className="perk">
           <CheckCircle2 size={15} className="cyan" />
-          <span>Direct Founder / Engineering Staff</span>
+          <span>Technical Discovery Session</span>
         </div>
         <div className="perk">
           <ShieldAlert size={15} className="gold" />
-          <span>Strict Confidentiality Guaranteed</span>
+          <span>NDA Protection Available on Request</span>
         </div>
       </div>
 

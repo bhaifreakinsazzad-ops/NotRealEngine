@@ -22,11 +22,10 @@ CREATE POLICY system_env_select ON public.system_environment
   FOR SELECT TO authenticated, anon
   USING (true);
 
--- Seed default for staging target (yamwmfgqqjwlfcjjkwzl):
+-- Seed default for all environments: FAIL CLOSED TO PRODUCTION (never staging by default)
 INSERT INTO public.system_environment (id, environment, is_synthetic_allowed, updated_at)
-VALUES ('current', 'staging', true, now())
-ON CONFLICT (id) DO UPDATE
-SET updated_at = now();
+VALUES ('current', 'production', false, now())
+ON CONFLICT (id) DO NOTHING;
 
 -- Helper function: current_user_is_super_admin
 -- Checks if current actor is service_role OR has role = 'super_admin' in public.profiles.
@@ -51,6 +50,67 @@ CREATE POLICY system_env_super_admin_all ON public.system_environment
   FOR ALL TO authenticated
   USING (public.current_user_is_super_admin())
   WITH CHECK (public.current_user_is_super_admin());
+
+-- Dedicated RPC: public.set_system_environment
+-- Only super_admin (or service_role) may execute this to change environment or synthetic flags.
+CREATE OR REPLACE FUNCTION public.set_system_environment(
+  p_environment text,
+  p_allow_synthetic boolean DEFAULT false
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_rec public.system_environment;
+BEGIN
+  IF NOT public.current_user_is_super_admin() THEN
+    RAISE EXCEPTION 'unauthorized_super_admin_only: only a verified super_admin (founder) may modify system environment'
+      USING errcode = 'insufficient_privilege';
+  END IF;
+
+  IF p_environment NOT IN ('staging', 'production') THEN
+    RAISE EXCEPTION 'invalid_environment: environment must be either staging or production'
+      USING errcode = 'invalid_parameter_value';
+  END IF;
+
+  -- Synthetic operations are strictly prohibited if environment is production
+  IF p_environment = 'production' AND p_allow_synthetic = true THEN
+    RAISE EXCEPTION 'invalid_environment_configuration: synthetic operations cannot be enabled in production'
+      USING errcode = 'integrity_constraint_violation';
+  END IF;
+
+  UPDATE public.system_environment
+  SET
+    environment = p_environment,
+    is_synthetic_allowed = (p_environment = 'staging' AND p_allow_synthetic),
+    updated_at = now(),
+    updated_by = auth.uid()
+  WHERE id = 'current'
+  RETURNING * INTO v_rec;
+
+  INSERT INTO public.audit_logs(actor_id, action, entity_type, entity_id, after_data)
+  VALUES (
+    auth.uid(),
+    'system_environment.updated',
+    'system_environment',
+    'current',
+    jsonb_build_object(
+      'environment', v_rec.environment,
+      'isSyntheticAllowed', v_rec.is_synthetic_allowed,
+      'updatedBy', v_rec.updated_by,
+      'updatedAt', v_rec.updated_at
+    )
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'environment', v_rec.environment,
+    'isSyntheticAllowed', v_rec.is_synthetic_allowed
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_system_environment(text, boolean) FROM public;
+GRANT EXECUTE ON FUNCTION public.set_system_environment(text, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.set_system_environment(text, boolean) TO service_role;
 
 -- =============================================================================
 -- 2. FOUNDER-ONLY COMMERCIAL TERMS APPROVAL SEPARATION
@@ -83,9 +143,11 @@ CREATE POLICY terms_super_admin_manage_all ON public.commercial_terms_versions
 
 -- Dedicated RPC: public.approve_commercial_terms
 -- Only super_admin (or service_role) may execute this to promote terms to approved_production.
+-- Supports 2 or 3 arguments (p_version, p_reference, optional p_notes).
 CREATE OR REPLACE FUNCTION public.approve_commercial_terms(
   p_version text,
-  p_reference text
+  p_reference text,
+  p_notes text DEFAULT null
 )
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -129,7 +191,8 @@ BEGIN
       'classification', v_rec.classification,
       'approvedBy', v_rec.approved_by,
       'approvedAt', v_rec.approved_at,
-      'approvalReference', v_rec.approval_reference
+      'approvalReference', v_rec.approval_reference,
+      'notes', p_notes
     )
   );
 
@@ -137,14 +200,15 @@ BEGIN
     'ok', true,
     'version', v_rec.version,
     'classification', v_rec.classification,
-    'approvalReference', v_rec.approval_reference
+    'approvalReference', v_rec.approval_reference,
+    'notes', p_notes
   );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.approve_commercial_terms(text, text) FROM public;
-GRANT EXECUTE ON FUNCTION public.approve_commercial_terms(text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.approve_commercial_terms(text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.approve_commercial_terms(text, text, text) FROM public;
+GRANT EXECUTE ON FUNCTION public.approve_commercial_terms(text, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_commercial_terms(text, text, text) TO service_role;
 
 -- =============================================================================
 -- 3. ENVIRONMENT-AWARE TERMS GOVERNANCE IN decide_quote

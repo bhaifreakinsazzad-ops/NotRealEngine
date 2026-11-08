@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { MessageSquare, Phone, Calendar, Sparkles, ExternalLink, X } from "lucide-react";
 import { SOCIAL_LINKS } from "./social-links";
 import { BookingCalendar } from "./booking-calendar";
@@ -88,21 +89,20 @@ export function QuickConnect() {
               </div>
             </button>
 
-            <a
-              href={SOCIAL_LINKS.clientPortal}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              href="/dashboard"
               className="quick-menu-item portal-item"
               role="menuitem"
+              onClick={() => setIsOpen(false)}
             >
               <div className="item-icon-box silver">
                 <ExternalLink size={16} />
               </div>
               <div className="item-text">
-                <strong>Client Portal</strong>
-                <span>clientportal.notrealengine.online</span>
+                <strong>Client Workspace</strong>
+                <span>ENGINE//OS Projects & Invoices</span>
               </div>
-            </a>
+            </Link>
           </div>
         )}
 

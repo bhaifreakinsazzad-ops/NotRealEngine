@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Menu, X, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { Brand } from "@/components/brand";
-import { SOCIAL_LINKS } from "@/components/social-links";
 
 const links = [
   ["Services", "/services"],
@@ -32,16 +31,14 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="header-actions">
-          <a
-            href={SOCIAL_LINKS.clientPortal}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/dashboard"
             className="btn btn-quiet portal-btn"
-            title="Open NOTREAL ENGINE Client Portal"
+            title="Open ENGINE//OS Client Workspace"
           >
-            <span>Portal</span>
+            <span>Workspace</span>
             <ExternalLink size={14} className="cyan" />
-          </a>
+          </Link>
           <Link className="btn btn-quiet" href="/login">
             Sign in
           </Link>
@@ -65,16 +62,14 @@ export function SiteHeader() {
               {label}
             </Link>
           ))}
-          <a
-            href={SOCIAL_LINKS.clientPortal}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/dashboard"
             className="mobile-portal-link"
             onClick={() => setOpen(false)}
           >
-            <span>Client Portal</span>
+            <span>Client Workspace</span>
             <ExternalLink size={14} className="cyan" />
-          </a>
+          </Link>
           <Link href="/login" onClick={() => setOpen(false)}>
             Sign in
           </Link>

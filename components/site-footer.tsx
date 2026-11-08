@@ -69,18 +69,16 @@ export function SiteFooter() {
                 </div>
               </a>
 
-              <a
-                href={SOCIAL_LINKS.clientPortal}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/dashboard"
                 className="footer-channel-link portal-link"
               >
-                <ExternalLink size={14} className="gold" />
+                <ExternalLink size={14} className="cyan" />
                 <div>
-                  <strong>Client Portal</strong>
-                  <span>clientportal.notrealengine.online</span>
+                  <strong>Client Workspace</strong>
+                  <span>ENGINE//OS Projects & Invoices</span>
                 </div>
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -98,7 +96,7 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
                 className="external-audit-link"
               >
-                <span>Meta Verified Identity</span>
+                <span>Admin Meta Profile</span>
                 <ExternalLink size={12} />
               </a>
             </nav>
@@ -109,7 +107,7 @@ export function SiteFooter() {
         <div className="footer-bottom-bar">
           <div className="footer-legal-copy">
             <span>© {year} NOTREAL ENGINE, LLC. All rights reserved.</span>
-            <span className="footer-env-tag">ENGINE//OS · STAGING V13.0 ACTIVE</span>
+            <span className="footer-env-tag">ENGINE//OS · OPERATIONAL PLATFORM</span>
           </div>
           <div className="footer-bottom-links">
             <Link href="/privacy">Privacy</Link>

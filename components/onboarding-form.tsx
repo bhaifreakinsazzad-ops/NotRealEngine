@@ -37,11 +37,11 @@ export function OnboardingForm({ inline = false }: OnboardingFormProps) {
         </div>
         <div className="benefit-item">
           <CheckCircle2 size={16} className="cyan" />
-          <span>Response & estimate within 24 business hours</span>
+          <span>Intake reviewed by technical triage desk</span>
         </div>
         <div className="benefit-item">
           <ShieldCheck size={16} className="gold" />
-          <span>Automated encryption and enterprise privacy controls</span>
+          <span>Structured scope & requirements collection</span>
         </div>
       </div>
 

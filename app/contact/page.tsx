@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Phone, ExternalLink, QrCode } from "lucide-react";
 import { MarketingShell } from "@/components/marketing-shell";
 import { BookingCalendar } from "@/components/booking-calendar";
@@ -65,25 +66,23 @@ export default function ContactPage() {
               </div>
             </a>
 
-            {/* Client Portal */}
-            <a
-              href={SOCIAL_LINKS.clientPortal}
-              target="_blank"
-              rel="noopener noreferrer"
+            {/* Client Workspace */}
+            <Link
+              href="/dashboard"
               className="channel-card portal-card"
             >
-              <div className="channel-icon-wrap gold">
+              <div className="channel-icon-wrap cyan">
                 <ExternalLink size={24} />
               </div>
               <div className="channel-info">
-                <span className="channel-meta mono">SECURE CLIENT WORKSPACE</span>
-                <h3>Client Portal</h3>
-                <p>Access your active projects, deliverables, milestones, and invoices.</p>
-                <span className="channel-action gold">
-                  clientportal.notrealengine.online <ExternalLink size={14} />
+                <span className="channel-meta mono">AUTHORITATIVE WORKSPACE</span>
+                <h3>Client Workspace</h3>
+                <p>Access your active projects, deliverables, milestones, and invoices in ENGINE//OS.</p>
+                <span className="channel-action">
+                  Open Workspace <ExternalLink size={14} />
                 </span>
               </div>
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -127,10 +126,10 @@ export default function ContactPage() {
         <div className="shell">
           <div className="meta-verification-panel">
             <div className="meta-info-left">
-              <div className="section-code">IDENTITY & CORPORATE VERIFICATION</div>
-              <h3>NOTREAL ENGINE, LLC · Verified Meta Portfolio</h3>
+              <div className="section-code">CORPORATE IDENTIFIERS & CHANNELS</div>
+              <h3>NOTREAL ENGINE, LLC · Meta Business Channel</h3>
               <p>
-                Our business portfolio and administrative credentials are cryptographically verified with Meta Business.
+                Meta Business Portfolio identification and administrative contact links for NOTREAL ENGINE, LLC.
               </p>
               <div className="meta-attributes-list">
                 <div className="meta-attr">
@@ -138,7 +137,7 @@ export default function ContactPage() {
                   <strong>{SOCIAL_LINKS.metaPortfolioId}</strong>
                 </div>
                 <div className="meta-attr">
-                  <span className="mono">Verified Admin:</span>
+                  <span className="mono">Admin Profile:</span>
                   <a
                     href={SOCIAL_LINKS.metaProfile}
                     target="_blank"
@@ -155,9 +154,9 @@ export default function ContactPage() {
             <div className="meta-qr-right">
               <div className="qr-badge">
                 <QrCode size={20} className="cyan" />
-                <span>ADMIN QR ACCESS</span>
+                <span>ADMIN QR CONTACT</span>
               </div>
-              <p className="qr-caption">Scan or click to verify admin access credentials:</p>
+              <p className="qr-caption">Scan or click for admin contact profile:</p>
               <a
                 href={SOCIAL_LINKS.metaQrAccess}
                 target="_blank"

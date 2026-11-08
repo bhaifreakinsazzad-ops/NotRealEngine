@@ -73,16 +73,16 @@ export function EngineShowcase({
   return (
     <div className={`engine-showcase-wrap ${compact ? "compact" : ""}`} ref={containerRef}>
       <div className="engine-showcase-frame">
-        {/* HUD Top Bar */}
+        {/* HUD Top Bar - Truthful Creative Direction */}
         <div className="engine-showcase-hud">
           <div className="hud-badge">
             <span className="hud-dot" />
-            <span className="hud-label">ENGINE//CORE REEL</span>
+            <span className="hud-label">VISUAL SHOWCASE // MOTION REEL</span>
           </div>
           <div className="hud-telemetry">
-            <span className="hud-metric"><Activity size={12} className="cyan" /> 60 FPS</span>
-            <span className="hud-metric">4K DCI</span>
-            <span className="hud-metric"><Sparkles size={12} className="gold" /> REAL-TIME</span>
+            <span className="hud-metric"><Activity size={12} className="cyan" /> 3D DYNAMICS</span>
+            <span className="hud-metric">MOTION CONCEPT</span>
+            <span className="hud-metric"><Sparkles size={12} className="gold" /> VISUAL PIPELINE</span>
           </div>
         </div>
 
@@ -148,7 +148,7 @@ export function EngineShowcase({
             <p className="showcase-subtitle">{subtitle}</p>
           </div>
           <div className="showcase-status">
-            <span className="mono status-tag ready">HARDWARE-ACCELERATED</span>
+            <span className="mono status-tag ready">CONCEPTUAL REEL</span>
           </div>
         </div>
       </div>
