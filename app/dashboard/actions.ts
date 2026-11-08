@@ -250,8 +250,8 @@ export async function requestRevisionAction(input: unknown): Promise<{ ok: true 
 const registerFileSchema = z.object({
   projectId: z.string().uuid("Invalid project ID"),
   organizationId: z.string().uuid("Invalid organization ID"),
-  storagePath: z.string().min(1),
-  originalName: z.string().min(1),
+  storagePath: z.string().min(1).max(500),
+  originalName: z.string().min(1).max(255),
   mimeType: z.enum([
     "application/pdf",
     "image/png",
@@ -272,8 +272,66 @@ export async function registerUploadedFileAction(
 
   const { projectId, organizationId, storagePath, originalName, mimeType, sizeBytes } = parsed.data;
 
+  // Enforce storage path security: must strictly be `${projectId}/<safe-filename>`
+  const expectedPrefix = `${projectId}/`;
+  if (!storagePath.startsWith(expectedPrefix)) {
+    return { ok: false, error: "Storage path traversal violation: path must start with project ID." };
+  }
+
+  const relativeFilename = storagePath.slice(expectedPrefix.length);
+  if (
+    relativeFilename.includes("..") ||
+    relativeFilename.includes("/") ||
+    relativeFilename.includes("\\") ||
+    relativeFilename.includes("\0") ||
+    !/^[a-zA-Z0-9_\-\.]+$/.test(relativeFilename)
+  ) {
+    return { ok: false, error: "Unsafe storage path characters or path traversal sequence detected." };
+  }
+
+  // Sanitize originalName
+  const sanitizedOriginalName = originalName.replace(/[\/\x00-\x1f\x7f-\x9f]/g, "_").trim();
+  if (!sanitizedOriginalName) {
+    return { ok: false, error: "Invalid original file name." };
+  }
+
   try {
     const { supabase, user } = await requireUser();
+
+    // Verify project exists and belongs to the specified organization
+    const { data: project, error: projErr } = await supabase
+      .from("projects")
+      .select("id, organization_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projErr || !project) {
+      return { ok: false, error: "Project not found or you lack access permission." };
+    }
+
+    if (project.organization_id !== organizationId) {
+      return { ok: false, error: "Project and organization mismatch." };
+    }
+
+    // Verify user is member of organization or staff
+    const { data: membership } = await supabase
+      .from("organization_memberships")
+      .select("organization_id")
+      .eq("organization_id", organizationId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membership) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_staff")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profile?.is_staff) {
+        return { ok: false, error: "You are not a member of this organization." };
+      }
+    }
 
     const { data: fileRecord, error: insErr } = await supabase
       .from("project_files")
@@ -281,7 +339,7 @@ export async function registerUploadedFileAction(
         project_id: projectId,
         organization_id: organizationId,
         storage_path: storagePath,
-        original_name: originalName,
+        original_name: sanitizedOriginalName,
         mime_type: mimeType,
         size_bytes: sizeBytes,
         uploaded_by: user.id
@@ -299,7 +357,7 @@ export async function registerUploadedFileAction(
       action: "file.uploaded",
       entity_type: "project_file",
       entity_id: fileRecord.id,
-      after_data: { storagePath, originalName, mimeType, sizeBytes }
+      after_data: { storagePath, originalName: sanitizedOriginalName, mimeType, sizeBytes }
     });
 
     revalidatePath(`/dashboard/projects/${projectId}/files`);
@@ -330,6 +388,39 @@ export async function createSupportTicketAction(
 
   try {
     const { supabase, user } = await requireUser();
+
+    // Verify user is member of organization or staff
+    const { data: membership } = await supabase
+      .from("organization_memberships")
+      .select("organization_id")
+      .eq("organization_id", organizationId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membership) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_staff")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profile?.is_staff) {
+        return { ok: false, error: "You are not a member of this organization." };
+      }
+    }
+
+    // If projectId is provided, verify it belongs to this organization
+    if (projectId) {
+      const { data: proj } = await supabase
+        .from("projects")
+        .select("id, organization_id")
+        .eq("id", projectId)
+        .single();
+
+      if (!proj || proj.organization_id !== organizationId) {
+        return { ok: false, error: "Associated project does not belong to your organization." };
+      }
+    }
 
     const { data: ticket, error: ticketErr } = await supabase
       .from("support_tickets")

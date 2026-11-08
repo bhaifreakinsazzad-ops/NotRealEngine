@@ -1,105 +1,75 @@
 # ENGINE//OS — Agent Handoff & Continuity Record
-Updated: 2026-11-08 by Gemini Coding Agent
+Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Handoff)
 
 ## 1. Executive Summary & Takeover Context
 - **Product:** ENGINE//OS (NOTREAL ENGINE, LLC)
-- **Takeover Date:** 2026-11-08
 - **Active Lead Developer Agent:** Gemini Coding Agent (Autonomous Engineering Takeover)
 - **Preceding Developer:** OpenAI Codex (Historical Baseline Commit: `287ebd9`)
-- **Current HEAD Commit:** `287ebd9` (with uncommitted verified implementation batches M4–M8 ready for staging commit)
+- **Current Git HEAD Commit:** `85e1dc8`
 - **Current Working Branch:** `master`
 - **Repository Location:** `E:\Agentic Work Station\Web Applications\NotRealEngine`
-- **Execution Mode:** Continuous, autonomous, repository-aware, verified incremental batches
+- **Release Decision:** DEVELOPMENT VERIFIED — STAGING BLOCKED (Pending External Credentials)
 
 ---
 
-## 2. Core Architecture
+## 2. Core Architecture & Verification Evidence
 - **Framework:** Next.js 16.4.5 (Turbopack, App Router) with React 19.3.1
-- **Language / Typing:** TypeScript 5.7.2 (Strict mode enabled, `noEmit` verification)
-- **Styling:** Tailwind CSS 4.3.5 (@tailwindcss/postcss) with Obsidian / Metallic / Electric Cyan theme
+- **Language / Typing:** TypeScript 5.7.2 (Strict mode enabled, `noEmit` verification: 0 errors)
+- **Styling:** Tailwind CSS 4.3.5 with Obsidian / Metallic / Electric Cyan theme
 - **Database & Identity:** Supabase SSR (`@supabase/ssr` 0.12.7, `@supabase/supabase-js` 2.119.0)
-  - PostgreSQL 15+ engine
-  - Strict Row Level Security (RLS) on all 24 public tables
+  - PostgreSQL 15+ engine with 24 RLS-governed tables
   - Trigger-enforced state transitions (`quote_state`, `order_state`, `project_state`)
-  - Immutable decision and audit logs
-  - Rate-limited server-side lead ingestion RPC
-- **Session & Routing:** `proxy.ts` (Next.js 16 middleware replacement) handles SSR session refresh; `lib/auth.ts` handles server-side route guards (`requireUser`, `requireAdmin`).
+  - Atomic database RPCs (`submit_project_brief`, `decide_quote`)
+  - Row locking `SELECT ... FOR UPDATE` for quote acceptance
+- **Test Metrics:**
+  - **Unit Tests:** 46 tests across 10 test files (100% passing)
+  - **E2E Playwright Tests:** 22 tests across Desktop Chromium and Mobile Pixel 7 (100% passing)
+  - **Production Build:** 35 static, SSG, dynamic, and API routes cleanly compiled
+  - **Security Audit:** 0 production vulnerabilities; 10 targeted tenant isolation & path traversal unit tests passing
 
 ---
 
-## 3. Verification Suite Results (All Passing)
-- **Typecheck (`npm.cmd run typecheck`):** PASSED (0 errors)
-- **Lint (`npm.cmd run lint`):** PASSED (0 errors, 0 warnings)
-- **Unit Tests (`npm.cmd test`):** PASSED (36 tests across 9 test files)
-  - `tests/unit/catalog.test.ts`
-  - `tests/unit/solution-finder.test.ts`
-  - `tests/unit/project-brief.test.ts`
-  - `tests/unit/quotes.test.ts`
-  - `tests/unit/orders.test.ts`
-  - `tests/unit/states.test.ts`
-  - `tests/unit/pricing.test.ts`
-  - `tests/unit/payments.test.ts`
-  - `tests/unit/outbox.test.ts`
-- **E2E Playwright Tests (`npm.cmd run test:e2e`):** PASSED (22 tests passed across Chromium & Mobile)
-  - `tests/e2e/public.spec.ts` (discovery, overflow, fail-closed builder)
-  - `tests/e2e/flows.spec.ts` (legal draft enforcement, transparent pricing, service directory, solution finder, fail-closed auth guards)
-- **Production Build (`npm.cmd run build`):** PASSED (35 static, SSG, dynamic, and API routes compiled)
-- **Dependency Audit (`npm.cmd audit --omit=dev`):** PASSED (0 production vulnerabilities)
-
----
-
-## 4. Key Repository Locations
-| Area | Path | Responsibility |
+## 3. Key Architecture & File Map
+| Functional Area | Primary Path | Security & Architectural Invariants |
 |---|---|---|
-| Service Catalog | `lib/catalog.ts` | 10 categories, 12 canonical services single source of truth |
-| Domain Models | `lib/domain/` | State transitions (`states.ts`), pricing logic (`pricing.ts`), quotes (`quotes.ts`) |
-| Intake Validation | `lib/validation/` | Zod schemas for briefs (`project-brief.ts`) |
-| Supabase SSR | `lib/supabase/` | Server and client Supabase factories, config checks |
-| Auth & RBAC | `lib/auth.ts`, `proxy.ts` | Staff verification, auth redirect guards |
-| Migrations | `supabase/migrations/` | Schema, RLS, storage policies, RPCs |
-| Public Routes | `app/`, `app/services/`, `app/solutions/`, `app/build/`, `app/pricing/` | Homepage, directory, finder, builder, pricing |
-| Legal Routes | `app/privacy/`, `app/terms/`, `app/refund-policy/` | Visibly draft legal pages |
-| Client Portal | `app/dashboard/`, `app/quotes/`, `app/orders/` | Customer workspace, quote review/acceptance, orders |
-| Admin Center | `app/admin/` | Operations center (leads, quotes, orders, projects, clients, pricing, support) |
-| Integrations | `lib/integrations/`, `app/api/webhooks/`, `app/api/drafts/` | Outbox worker, payment adapter, pre-registration drafts |
+| Canonical Registry | `lib/catalog.ts` | Exactly 10 categories, 12 canonical services. Web App and PWA are distinct. |
+| Commercial Engine | `lib/domain/quotes.ts` | Strict integer minor units. Immutable snapshot generated upon quote publishing and acceptance. |
+| Quotation Interface | `app/quotes/[id]`, `app/quotes/actions.ts` | Calls atomic RPC `decide_quote`. Creates order idempotently upon acceptance. |
+| Client Workspace | `app/dashboard/`, `app/dashboard/projects/` | Milestone progress bar, requirement desk, deliverable sign-offs, revision limits. |
+| Secure File Storage | `components/project-file-uploader.tsx`, `app/dashboard/actions.ts` | 50MB max, MIME whitelist, storage path strictly `${projectId}/<file>`, traversal sequences rejected. |
+| Admin Operations | `app/admin/` | Real-time operational queues: leads, quotes, orders, projects, pricing, support. |
+| Payment Gateway | `lib/integrations/payments/`, `app/api/webhooks/payment/` | Constant-time HMAC-SHA256, Stripe tolerance check, replay defense, minor unit matching. |
+| Automation Worker | `lib/integrations/outbox-worker.ts`, `app/api/cron/outbox/` | Transactional outbox, exponential backoff, bearer token authenticated cron endpoint. |
+| Pre-Reg Drafts | `app/api/drafts/` | Opaque SHA-256 token persistence and account claiming workflow. |
 
 ---
 
-## 5. Milestone Progress Matrix
-- [x] **M0: Repository Foundation & Verification Baseline** (COMPLETE)
-- [x] **M1: Discovery Engine & Canonical Service Registry** (COMPLETE)
-- [x] **M2: Solution Finder & Interactive Project Builder** (COMPLETE)
-- [x] **M3: Lead Validation & Rate-Limited Database Intake** (COMPLETE)
-- [x] **M4: Commerce & Quotation Engine** (COMPLETE)
-- [x] **M5: Client Workspace & Project Operations** (COMPLETE)
-- [x] **M6: Admin Operations Center** (COMPLETE)
-- [x] **M7: Automation, Outbox & Integration Adapters** (COMPLETE)
-- [x] **M8: Testing, Security Hardening & Release Verification** (COMPLETE)
+## 4. Documentation Suite
+- `docs/STAGING_VERIFICATION.md` — Step-by-step guide for staging deployment and two-tenant verification.
+- `docs/SECURITY_AUDIT.md` — Complete threat model, RLS audit, and storage hardening report.
+- `docs/INTEGRATION_STATUS.md` — Payment gateway comparison, webhook protocols, and outbox runner.
+- `docs/PRODUCTION_LAUNCH_CHECKLIST.md` — Pre-flight quality gates, launch checklist, and release phases.
+- `docs/FOUNDER_APPROVALS.md` — Register of founder-controlled decisions and environment requirements.
+- `docs/RELEASE_READINESS.md` — Up-to-date release readiness evaluation.
+- `docs/IMPLEMENTATION_STATUS.md` — Truthful matrix of all 23 application areas.
+- `docs/NEXT_ACTIONS.md` — Prioritized engineering backlog.
 
 ---
 
-## 6. External Governance Controls & Approvals Held
-- **Live Payments:** Provider eligibility, merchant gateway keys, and live billing activation require explicit owner approval. Payment state may become `paid` only via verified idempotent provider webhooks.
-- **Transactional Notifications:** Real provider SMTP/SMS delivery remains disabled; durable outbox records are enqueued safely without blocking business operations.
-- **Legal Terms:** Legal and policy documents remain visibly marked as DRAFT until final executed copies are provided.
-- **Production Deployment:** Live domain publishing and production migration execution remain founder-controlled.
-
----
-
-## 7. Commands to Verify Repository
+## 5. Commands to Run Verification
 ```bash
-# Typecheck
+# Strict Typecheck
 npm.cmd run typecheck
 
-# Linting
+# ESLint
 npm.cmd run lint
 
-# Vitest Unit Tests (36 tests)
+# Vitest Unit & Domain Test Suite (46 tests)
 npm.cmd test
 
-# Playwright E2E Tests (22 tests across Chromium & Mobile)
+# Playwright E2E Test Suite (22 tests on Desktop Chromium & Mobile)
 npm.cmd run test:e2e
 
-# Next.js Production Build
+# Production Build
 npm.cmd run build
 ```

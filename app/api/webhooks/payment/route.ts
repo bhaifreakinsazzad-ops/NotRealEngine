@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { processPaymentWebhook } from "@/lib/integrations/payments/processor";
+import { parseAndVerifyPaymentWebhook } from "@/lib/integrations/payments/providers";
 
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
@@ -13,15 +14,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const signature = req.headers.get("x-webhook-signature");
-  if (!signature) {
-    return NextResponse.json({ error: "Missing webhook signature header" }, { status: 401 });
-  }
-
   try {
-    const rawBody = await req.json();
+    const rawBodyText = await req.text();
 
-    // Use service role client for webhook event processing
+    // Verify cryptographic signature against raw body
+    const verification = parseAndVerifyPaymentWebhook(rawBodyText, req.headers, {
+      webhookSecret
+    });
+
+    if (!verification.valid || !verification.event) {
+      return NextResponse.json(
+        { error: verification.error ?? "Invalid payment webhook signature" },
+        { status: 401 }
+      );
+    }
+
+    // Use service role client for verified webhook event processing
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -33,7 +41,7 @@ export async function POST(req: NextRequest) {
       cookies: { getAll: () => [], setAll: () => {} }
     });
 
-    const result = await processPaymentWebhook(supabase, rawBody);
+    const result = await processPaymentWebhook(supabase, verification.event);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error, code: result.code }, { status: 400 });

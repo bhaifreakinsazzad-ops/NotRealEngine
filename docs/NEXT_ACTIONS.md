@@ -1,82 +1,49 @@
 # ENGINE//OS — Next Implementation Actions Queue
-Updated: 2026-11-08 by Gemini Coding Agent
+Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Review)
 
 This document tracks prioritized, actionable engineering batches.
 
 ---
 
-### Completed Implementation Batches (M0–M8)
+### Immediate Next Implementation Batches
 
-| Task ID | Milestone | Description | Status |
-|---|---|---|---|
-| **TASK-M4-01** | M4 | Quotation actions & customer decision UI (`/quotes/[id]`, RPC `decide_quote`) | COMPLETE |
-| **TASK-M4-02** | M4 | Admin quotation builder & publishing center (`/admin/quotes`, snapshot creation) | COMPLETE |
-| **TASK-M4-03** | M4 | Order lifecycle, state transitions & commercial snapshot (`/orders/[id]`, `/admin/orders`) | COMPLETE |
-| **TASK-M5-01** | M5 | Client workspace, project progress & milestone tracking (`/dashboard/projects`) | COMPLETE |
-| **TASK-M5-02** | M5 | Client requirements intake & status management (`/dashboard/projects/[id]/requirements`) | COMPLETE |
-| **TASK-M5-03** | M5 | Authenticated file uploader & signed URL downloads (`/dashboard/projects/[id]/files`) | COMPLETE |
-| **TASK-M5-04** | M5 | Formal deliverable review, approval & revision budgets (`/dashboard/projects/[id]/review`) | COMPLETE |
-| **TASK-M6-01** | M6 | Admin leads triage & quote conversion (`/admin/leads`) | COMPLETE |
-| **TASK-M6-02** | M6 | Admin production queue, milestone updates & deliverable handover (`/admin/projects`) | COMPLETE |
-| **TASK-M6-03** | M6 | Admin pricing governance, minor unit schedule & catalog inspector (`/admin/pricing`, `/admin/services`) | COMPLETE |
-| **TASK-M7-01** | M7 | Durable outbox processor worker with exponential backoff (`lib/integrations/outbox-worker.ts`) | COMPLETE |
-| **TASK-M7-02** | M7 | Payment gateway adapter & signature-validated webhook receiver (`lib/integrations/payments`) | COMPLETE |
-| **TASK-M7-03** | M7 | Pre-registration opaque-token draft persistence & account claim API (`app/api/drafts`) | COMPLETE |
-| **TASK-M8-01** | M8 | Comprehensive unit test suite expansion (36 tests across 9 files) | COMPLETE |
-| **TASK-M8-02** | M8 | Playwright E2E test suite covering legal draft banners, discovery, and auth perimeters (22 tests) | COMPLETE |
+#### [TASK-OPS-01] Staging Database Deployment & Multi-Tenant Audit
+- **Priority:** Critical (P0)
+- **Status:** BLOCKED pending credentials
+- **Dependencies:** Staging Supabase project credentials (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
+- **Required Work:**
+  1. Apply `202611080001_engine_os_foundation.sql` and `202611080002_seed_canonical_services.sql` to staging database.
+  2. Verify all 24 public tables, RLS policies, and RPCs (`decide_quote`, `submit_project_brief`).
+  3. Create isolated synthetic test identities (Staff, Customer A, Customer B).
+  4. Execute two-tenant isolation verification (Journey 1 & Journey 2 from `docs/STAGING_VERIFICATION.md`).
 
 ---
 
-### Next Pending Actions (Production Preparation & External Milestones)
-
-#### [TASK-OPS-01] Staging Environment Provisioning
+#### [TASK-LEGAL-01] Legal Copy Integration
 - **Priority:** High (P1)
-- **Milestone:** Staging Release
-- **Dependencies:** Supabase cloud project, GitHub repository access
-- **Required Inputs:**
-  - `NEXT_PUBLIC_SUPABASE_URL`
-  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  - `SUPABASE_SERVICE_ROLE_KEY`
-- **Actions:**
-  1. Apply existing migrations `202611080001_engine_os_foundation.sql` and `202611080002_seed_canonical_services.sql` to staging Supabase instance.
-  2. Verify RLS across two distinct test organizations.
-  3. Seed initial staff profile (`is_staff: true`).
-- **Verification:**
-  - Automated integration run against live Supabase instance.
+- **Status:** BLOCKED pending founder/counsel text
+- **Dependencies:** Approved copy for Privacy Policy, Terms of Service, and Refund Policy
+- **Required Work:**
+  1. Replace draft placeholders in `app/privacy/page.tsx`, `app/terms/page.tsx`, and `app/refund-policy/page.tsx`.
+  2. Remove `DRAFT — NOT APPROVED` warning banners upon written authorization.
 
 ---
 
-#### [TASK-OPS-02] Payment Gateway Credentials & Webhook Activation
-- **Priority:** Gated (Owner Approval Required)
-- **Milestone:** Commercial Activation
-- **Dependencies:** Merchant account approval (SSLCommerz, Stripe, bKash/Nagad)
-- **Required Inputs:**
-  - Gateway API credentials and signing secrets.
-- **Actions:**
-  1. Configure secrets in environment.
-  2. Wire payment provider webhook endpoint to gateway dashboard.
-  3. Perform test sandbox transaction and verify idempotent order state progression to `confirmed`.
+#### [TASK-PAY-01] Payment Gateway Sandbox Test
+- **Priority:** High (P1)
+- **Status:** GATED pending merchant sandbox credentials
+- **Dependencies:** SSLCommerz / Stripe test API keys
+- **Required Work:**
+  1. Configure sandbox secrets in environment.
+  2. Execute end-to-end sandbox transaction against `/api/webhooks/payment`.
+  3. Verify order transition to `confirmed` and transaction audit entry.
 
 ---
 
-#### [TASK-OPS-03] Transactional Email & Messaging Dispatch
-- **Priority:** Gated (Owner Approval Required)
-- **Milestone:** Communications Activation
-- **Dependencies:** Provider setup (Postmark, Resend, or SendGrid)
-- **Required Inputs:**
-  - Verified sender domain and API key.
-- **Actions:**
-  1. Plug provider client into `lib/integrations/outbox-worker.ts` handler map.
-  2. Schedule periodic outbox runner (cron / Vercel Cron / serverless task).
-  3. Verify delivery of lead confirmation and quotation notice emails.
-
----
-
-#### [TASK-OPS-04] Legal Copy Finalization & Production Sign-off
-- **Priority:** Gated (Owner / Legal Counsel Required)
-- **Milestone:** Production Launch
-- **Dependencies:** Reviewed legal text for Terms of Service, Privacy Policy, and Refund Policy.
-- **Actions:**
-  1. Replace draft placeholders in `/privacy`, `/terms`, `/refund-policy` with approved legal text.
-  2. Remove DRAFT warning banners upon written sign-off.
-  3. Execute production deployment to custom domain.
+#### [TASK-MAIL-01] Transactional Outbox Scheduling
+- **Priority:** Medium (P2)
+- **Status:** Ready for scheduling
+- **Dependencies:** Cron schedule runner (e.g. Vercel Cron or GitHub Actions)
+- **Required Work:**
+  1. Configure periodic POST request to `/api/cron/outbox` with `Authorization: Bearer <CRON_SECRET>`.
+  2. When email provider credentials are provided, toggle `NOTIFICATIONS_ENABLED=true`.

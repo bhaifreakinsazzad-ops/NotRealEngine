@@ -1,68 +1,39 @@
-# Release readiness — 2026-11-08 (Updated by Gemini Agent)
-
-## 1. COMPLETED WORK (Implemented, Verified, and Ready)
-
-### Acquisition & Canonical Catalog (M0–M2)
-- Modular Next.js 16 App Router, Tailwind CSS, TypeScript architecture.
-- Exact canonical registry: 10 categories, 12 offers reconciled in `lib/catalog.ts` and `202611080002_seed_canonical_services.sql`.
-- Deterministic rules-based Solution Finder.
-- Six-step interactive Project Builder with server-side validation and fail-closed intake contract.
-
-### Commercial & Quotation Engine (M4)
-- Exact minor unit commercial calculations (`lib/domain/quotes.ts`).
-- Quotation authoring, publishing validation, and state machine (`lib/domain/states.ts`).
-- Atomic database RPC quote acceptance (`decide_quote`) generating immutable snapshot.
-- Full interactive client quote review and decision workflow (`/quotes/[id]`).
-- Staff quotation management and creation center (`/admin/quotes`, `/admin/quotes/new`, `/admin/quotes/[id]`).
-- Order management queue and customer order tracking (`/orders/[id]`, `/admin/orders`, `/admin/orders/[id]`).
-- Order-to-project workspace initialization (`initializeProjectFromOrderAction`).
-
-### Client Workspace & Project Operations (M5)
-- Client operations dashboard with milestone progress tracking (`/dashboard`).
-- Interactive requirement submission and status tracking (`/dashboard/projects/[id]/requirements`).
-- Authenticated file upload with 50MB and MIME validation to Supabase Storage (`/dashboard/projects/[id]/files`).
-- Deliverable approval and formal revision request workflows with budget tracking (`/dashboard/projects/[id]/review`).
-- Client orders history, invoice clearance log, and support ticketing desk (`/dashboard/orders`, `/dashboard/billing`, `/dashboard/support`).
-
-### Admin Operations Center (M6)
-- Staff operations overview with truth-grounded live KPIs and audit stream (`/admin`).
-- Lead queue with status progression and quote conversion shortcuts (`/admin/leads`).
-- Production queue with milestone state transitions and deliverable handover controls (`/admin/projects`, `/admin/projects/[id]`).
-- Client organization registry and membership oversight (`/admin/clients`).
-- Catalog integrity validator (`/admin/services`).
-- Price schedule governance and staff sign-off tooling (`/admin/pricing`).
-- Support ticket triage and escalation desk (`/admin/support`).
-- Operational release gates and security posture dashboard (`/admin/settings`).
-
-### Integration Adapters & Automation (M7)
-- Durable outbox processing worker with exponential backoff and retry tracking (`lib/integrations/outbox-worker.ts`).
-- Idempotent payment gateway adapter with replay protection, amount verification, and order confirmation (`lib/integrations/payments/processor.ts`).
-- Cryptographic payment webhook receiver endpoint (`app/api/webhooks/payment/route.ts`).
-- Pre-registration opaque-token draft persistence and account claim API (`app/api/drafts/route.ts`, `app/api/drafts/claim/route.ts`).
-
-### Verification & Test Suite (M8)
-- **TypeScript:** `npm run typecheck` passes with 0 errors.
-- **ESLint:** `npm run lint` passes with 0 errors and 0 warnings.
-- **Unit Tests:** `npm test` passes with 36 tests across 9 test files (100% passing).
-- **Playwright E2E:** `npm run test:e2e` passes with 22 tests across Chromium and Mobile viewports (100% passing).
-- **Production Build:** `npm run build` compiles 35 static, SSG, dynamic, and API routes successfully.
+# Release Readiness Evaluation — 2026-11-08
+Auditor: Gemini Coding Agent (Master Directive V6.0 Evaluation)
 
 ---
 
-## 2. GOVERNANCE & GATED CONTROLS (Held by Policy)
+## 1. Formal Release Decision
 
-The following live integrations remain deliberately held or gated until explicit owner credentials and legal approvals are supplied:
-1. **Live Payment Processing:** Production gateway credentials (SSLCommerz/Stripe/bKash/Nagad) require founder configuration. Webhook signature validation and idempotent processing logic are complete and tested in simulation.
-2. **External Email/SMS Delivery:** Outbox worker handles events locally and queues delivery. Live dispatch remains paused until transactional email credentials (Postmark/Resend) are configured.
-3. **Legal Binding Agreements:** `/privacy`, `/terms`, and `/refund-policy` remain visibly labeled with draft disclaimers until counsel-approved text is provided.
-4. **Production Deployment:** Requires live Supabase production project credentials and custom domain configuration.
+### Current Decision: **DEVELOPMENT VERIFIED — STAGING BLOCKED**
+
+**Rationale:**
+1. **Application Layer:** 100% verified locally. All routes, components, actions, domain models, and integration adapters pass strict TypeScript checks (0 errors), ESLint (0 errors, 0 warnings), Vitest (46/46 passed), Playwright (22/22 passed), and Next.js 16 Turbopack production compilation (35 routes).
+2. **Security & Gating:** All tenant boundary defenses, storage path traversal protections, cryptographic HMAC webhook signatures, and fail-closed auth perimeters are implemented and verified with automated tests.
+3. **External Blockers:** The local development host lacks local Docker/PostgreSQL services, and external staging Supabase project credentials have not been configured. In strict accordance with Directive V6.0 Rule 5, production deployment cannot be certified until staging database verification is executed against real PostgreSQL infrastructure.
 
 ---
 
-## 3. AUDIT & SECURITY SUMMARY
+## 2. Capability Evidence Matrix
 
-- **Production Dependencies:** `npm audit --omit=dev` reports 0 vulnerabilities.
-- **Development Dependencies:** 8 moderate development findings in `@typescript-eslint`'s transitive dependency `minimatch`. Safe, non-breaking upstream patch recommended when Next.js canary updates.
-- **Row Level Security (RLS):** All tenant data access guarded by RLS policies; zero RLS bypasses in client code.
-- **Minor Unit Integrity:** All monetary amounts represented in minor integer units across catalog, quotes, orders, and payments.
-- **Fail-Closed Security:** Unauthenticated access to client and admin perimeters redirects strictly to login.
+| Area | Status | Evidence |
+|---|---|---|
+| **Catalog Integrity** | LOCALLY VERIFIED | Exactly 10 categories, 12 canonical services in `lib/catalog.ts` and migration seed. Verified in `catalog.test.ts`. |
+| **Project Builder Intake** | LOCALLY VERIFIED | 6-step builder UI, strict Zod validation, fail-closed rate-limited RPC contract. Verified in `public.spec.ts`. |
+| **Quotation Engine** | LOCALLY VERIFIED | Integer minor unit calculations, publishing validator, and atomic `decide_quote` acceptance RPC with snapshot immutability. Verified in `quotes.test.ts`. |
+| **Order Management** | LOCALLY VERIFIED | Customer order views, state progression machine (`states.ts`), and project workspace initialization. Verified in `orders.test.ts`. |
+| **Client Workspace** | LOCALLY VERIFIED | Real milestone progress tracking, requirements submission, file uploader, deliverable review, and revision budgets. Verified in `flows.spec.ts`. |
+| **Admin Operations** | LOCALLY VERIFIED | Leads triage, project supervision, pricing governance, and client registry. Verified in `flows.spec.ts`. |
+| **Storage Security** | LOCALLY VERIFIED | Path traversal guards, project/org ownership verification, 50MB and MIME validation. Verified in `security.test.ts`. |
+| **Payment Security** | LOCALLY VERIFIED (GATED) | Cryptographic HMAC-SHA256 and Stripe tolerance verification, replay protection, exact amount matching. Verified in `security.test.ts`. |
+| **Automation Outbox** | LOCALLY VERIFIED (GATED) | Outbox worker with exponential backoff and authenticated cron trigger endpoint. Verified in `outbox.test.ts`. |
+| **Legal Pages** | COMPLIANT (HELD DRAFT) | Visibly marked DRAFT; unapproved contractual acceptance blocked. Verified in `flows.spec.ts`. |
+| **Staging Deployment** | BLOCKED | Requires Supabase cloud project and hosting configuration. |
+| **Production Launch** | BLOCKED | Requires staging verification and founder approval. |
+
+---
+
+## 3. Dependency Security Evaluation
+
+- `npm audit --omit=dev`: **0 vulnerabilities** (Clean production dependency tree).
+- Development dependencies report 8 moderate severity advisories in `minimatch` under `@typescript-eslint`. A forced fix would require downgrading `eslint-config-next` across a breaking framework boundary. In accordance with directive guidelines, we recommend updating when an upstream compatible Next.js release is published.
