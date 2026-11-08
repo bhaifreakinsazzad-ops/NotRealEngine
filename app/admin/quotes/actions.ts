@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import {
+  type CommercialTermsMetadata,
+  type TermsClassification,
   type QuoteItem,
   type QuoteScope,
+  DEFAULT_TERMS_REGISTRY,
   buildQuoteSnapshot,
   calculateQuoteTotalMinor,
   quoteItemSchema,
@@ -57,6 +60,24 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
     let sentAt = null;
 
     if (initialState === "sent") {
+      const { data: dbTerms } = await supabase
+        .from("commercial_terms_versions")
+        .select("version, document_id, title, classification, approved_by, approved_at, approval_reference")
+        .eq("version", termsVersion)
+        .maybeSingle();
+
+      const termsMetadata: CommercialTermsMetadata | null = dbTerms
+        ? {
+            version: dbTerms.version,
+            documentId: dbTerms.document_id,
+            title: dbTerms.title,
+            classification: dbTerms.classification as TermsClassification,
+            approvedBy: dbTerms.approved_by,
+            approvedAt: dbTerms.approved_at,
+            approvalReference: dbTerms.approval_reference
+          }
+        : (DEFAULT_TERMS_REGISTRY[termsVersion] ?? null);
+
       const val = validateQuoteForPublishing({
         state: "draft",
         currency,
@@ -66,6 +87,7 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
         validUntil,
         scope,
         items,
+        termsMetadata,
         now
       });
       if (!val.valid) {
@@ -194,6 +216,28 @@ export async function publishQuoteAction(quoteId: string): Promise<{ ok: true } 
     const now = new Date();
     const validUntilDate = quote.valid_until ? new Date(quote.valid_until) : null;
 
+    const { data: dbTerms } = quote.terms_version
+      ? await supabase
+          .from("commercial_terms_versions")
+          .select("version, document_id, title, classification, approved_by, approved_at, approval_reference")
+          .eq("version", quote.terms_version)
+          .maybeSingle()
+      : { data: null };
+
+    const termsMetadata: CommercialTermsMetadata | null = dbTerms
+      ? {
+          version: dbTerms.version,
+          documentId: dbTerms.document_id,
+          title: dbTerms.title,
+          classification: dbTerms.classification as TermsClassification,
+          approvedBy: dbTerms.approved_by,
+          approvedAt: dbTerms.approved_at,
+          approvalReference: dbTerms.approval_reference
+        }
+      : quote.terms_version
+      ? (DEFAULT_TERMS_REGISTRY[quote.terms_version] ?? null)
+      : null;
+
     const val = validateQuoteForPublishing({
       state: quote.state as QuoteState,
       currency: quote.currency as "BDT" | "USD",
@@ -210,6 +254,7 @@ export async function publishQuoteAction(quoteId: string): Promise<{ ok: true } 
         recurringInterval: i.recurring_interval,
         displayOrder: i.display_order
       })),
+      termsMetadata,
       now
     });
 

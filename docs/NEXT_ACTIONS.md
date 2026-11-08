@@ -1,41 +1,29 @@
-# ENGINE//OS — Next Implementation Actions & Founder Checklist (V11.0)
-Updated: 2026-11-08 by Gemini Coding Agent
+# Remaining Founder Actions — 2026-11-08 (Directive V12.0)
 
----
+Only actions that genuinely require founder authority or external provider credentials remain:
 
-## 1. Completed Engineering Batches (V11.0)
+## 1. Apply Migration `0005` in Supabase SQL Editor (Immediate)
+Open the **Supabase Dashboard SQL Editor** for project `yamwmfgqqjwlfcjjkwzl` and run:
+- [`supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql`](../supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql)
 
-- **[COMPLETE] Database Migration & Security Remediation (`yamwmfgqqjwlfcjjkwzl`):**
-  - 30/30 canonical tables verified.
-  - 12 canonical services across 10 distinct categories verified.
-  - Private `project-files` storage bucket verified.
-  - Direct anonymous RPC `submit_project_brief` strictly rejected (`42501 permission denied`).
-  - Migration `202611080005_v11_commercial_and_rpc_hardening.sql` authored and appended to `supabase/bootstrap.sql`.
-- **[COMPLETE] Real Multi-Tenant E2E Lifecycle Verification (`npm.cmd run verify:staging` — 58/58 PASS):**
-  - Real Supabase Auth JWT sessions verified for `Customer A`, `Customer B`, and `Staff`.
-  - Cross-tenant RLS isolation verified across organizations, leads, quotes, orders, project requirements, `project_files`, and Storage (`project-files`).
-  - Atomic `decide_quote` order creation (`awaiting_payment`) and replay idempotency verified.
-  - Revision limit constraint (`revision_count <= revision_limit`) and deliverable approval/delivery verified.
-- **[COMPLETE] Admin Financial Metrics Separation (`app/admin/page.tsx`):**
-  - Separated into **Total Order Value**, **Unpaid Orders**, **Verified Payments Received** (`state = 'paid'` and `verified_at IS NOT NULL`), **Refunds Recorded**, and **Outstanding Invoices** with BDT/USD currency separation.
-
----
-
-## 2. Remaining Founder Actions for Release A & Production Launch
-
-### Action 1 (Optional DB Hardening): Apply Migration `202611080005` in Supabase SQL Editor
-Run `supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql` in the Supabase SQL Editor to enforce `is_org_admin` directly inside the PostgreSQL `decide_quote` RPC and add the `requirements_staff_all` policy (already enforced in Next.js server actions).
-
-### Action 2: Connect Vercel Project for Hosted Preview / Release A
-Import `https://github.com/bhaifreakinsazzad-ops/NotRealEngine` (`main` branch) into Vercel and set the environment variables documented in `docs/DEPLOYMENT.md`.
-
-### Action 3: Promote Initial Founder Account to Staff (`is_staff = true`)
-After signing up in the application, run in Supabase SQL Editor:
-```sql
-UPDATE public.profiles
-SET is_staff = true
-WHERE id = (SELECT id FROM auth.users WHERE email = '<founder-email>');
+## 2. Connect Hosted Vercel Deployment (Release A)
+Either import `bhaifreakinsazzad-ops/NotRealEngine` (`main`) in the Vercel Dashboard with the environment variables listed in [`docs/DEPLOYMENT.md`](./DEPLOYMENT.md), or run locally:
+```powershell
+npx.cmd vercel login
+npx.cmd vercel link
+npx.cmd vercel deploy
 ```
 
-### Action 4: Legal Copy Approval (Pre-Production)
-Provide approved legal text for `/privacy`, `/terms`, and `/refund-policy` to remove the `DRAFT — NOT APPROVED FOR PUBLICATION OR ACCEPTANCE` banners.
+## 3. Confirm First Founder Super-Admin Account (Release A)
+After signing up and confirming your email address in Supabase Auth, promote your account:
+```powershell
+node scripts/promote-founder-admin.mjs --email <your-verified-founder-email>
+```
+
+## 4. Legal Text Approval for Binding Production Quotes (Release B)
+When final legal text is approved by founder/counsel:
+1. Replace draft text on `/terms`, `/privacy`, and `/refund-policy`.
+2. Insert or update an `approved_production` row in `public.commercial_terms_versions` with `approved_by`, `approved_at`, and `approval_reference`.
+
+## 5. Payment & Notification Provider Activation (Release C)
+Keep `PAYMENTS_ENABLED=false` and `NOTIFICATIONS_ENABLED=false` until verified merchant/email credentials (`SSLCommerz`, `bKash`, `Stripe`, `Resend`) are provisioned and tested.

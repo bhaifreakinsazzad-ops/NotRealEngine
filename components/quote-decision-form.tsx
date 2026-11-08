@@ -12,6 +12,7 @@ interface QuoteDecisionFormProps {
   validUntil: string | null;
   orderId?: string | null;
   termsVersion?: string | null;
+  termsClassification?: "draft" | "staging_synthetic" | "approved_production" | "retired";
 }
 
 export function QuoteDecisionForm({
@@ -19,7 +20,8 @@ export function QuoteDecisionForm({
   state,
   validUntil,
   orderId,
-  termsVersion
+  termsVersion,
+  termsClassification = "draft"
 }: QuoteDecisionFormProps) {
   const router = useRouter();
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -31,6 +33,8 @@ export function QuoteDecisionForm({
 
   const isExpired = Boolean(validUntil && new Date(validUntil) <= new Date());
   const canDecide = state === "sent" && !isExpired;
+  const isTermsEligibleForAcceptance =
+    termsClassification === "approved_production" || termsClassification === "staging_synthetic";
 
   async function handleAccept() {
     if (!termsAccepted) {
@@ -207,20 +211,32 @@ export function QuoteDecisionForm({
             lineHeight: 1.5
           }}
         >
-          <strong className="gold">Commercial Governance Notice:</strong> Public legal policy pages remain in pre-release draft review. Quotation sign-off binds this specific immutable scope snapshot ({termsVersion || "ENGINE//OS-TERMS-V1.0"}) and requires an authorized organization owner or administrator.
+          {termsClassification === "approved_production" ? (
+            <>
+              <strong className="cyan">Approved Commercial Terms Active:</strong> This quotation references founder-approved commercial terms ({termsVersion || "ENGINE//OS-TERMS-V1.0"}). Sign-off requires an authorized organization owner or administrator.
+            </>
+          ) : termsClassification === "staging_synthetic" ? (
+            <>
+              <strong className="gold">Synthetic Staging Verification Terms:</strong> This quotation uses non-binding staging verification terms ({termsVersion}) for workflow testing only. It does not establish a production legal obligation.
+            </>
+          ) : (
+            <>
+              <strong className="gold">Binding Acceptance Gated (Draft Legal Terms):</strong> Referenced terms ({termsVersion || "ENGINE//OS-TERMS-V1.0"}) are currently classified as <code>DRAFT</code> pending founder legal sign-off. In Release A safe mode, you may review this quotation or request revisions, while binding order acceptance remains disabled until approved terms are activated.
+            </>
+          )}
         </div>
 
         <div style={{ marginBottom: "1.5rem" }}>
-          <label style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", cursor: "pointer" }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", cursor: isTermsEligibleForAcceptance ? "pointer" : "not-allowed", opacity: isTermsEligibleForAcceptance ? 1 : 0.6 }}>
             <input
               type="checkbox"
               checked={termsAccepted}
               onChange={(e) => setTermsAccepted(e.target.checked)}
               style={{ marginTop: "0.25rem", accentColor: "var(--cyan)", width: "18px", height: "18px" }}
-              disabled={loading}
+              disabled={loading || !isTermsEligibleForAcceptance}
             />
             <span style={{ fontSize: "0.92rem", color: "var(--silver)", lineHeight: 1.5 }}>
-              I confirm that I have reviewed the deliverables, line items, exclusions, milestone schedule, and accept the commercial terms ({termsVersion || "ENGINE//OS-TERMS-V1.0"}). I authorize creation of an official binding order upon acceptance.
+              I confirm that I have reviewed the deliverables, line items, exclusions, milestone schedule, and accept the commercial terms ({termsVersion || "ENGINE//OS-TERMS-V1.0"} · {termsClassification.toUpperCase()}).
             </span>
           </label>
         </div>
@@ -230,7 +246,7 @@ export function QuoteDecisionForm({
             <button
               type="button"
               onClick={handleAccept}
-              disabled={loading || !termsAccepted}
+              disabled={loading || !termsAccepted || !isTermsEligibleForAcceptance}
               className="btn btn-primary"
               style={{ minWidth: "220px" }}
             >
@@ -238,6 +254,8 @@ export function QuoteDecisionForm({
                 <>
                   <Loader2 size={18} className="animate-spin" /> Processing...
                 </>
+              ) : !isTermsEligibleForAcceptance ? (
+                "Acceptance Held (Draft Terms)"
               ) : (
                 <>
                   <CheckCircle2 size={18} /> Accept Quotation & Order

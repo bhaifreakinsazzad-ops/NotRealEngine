@@ -55,6 +55,14 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
     linkedOrderId = order?.id ?? null;
   }
 
+  // Fetch authoritative commercial terms classification
+  const { data: termsRow } = await supabase
+    .from("commercial_terms_versions")
+    .select("version, document_id, classification")
+    .eq("version", quote.terms_version || "ENGINE//OS-TERMS-V1.0")
+    .maybeSingle();
+  const termsClassification = (termsRow?.classification as "draft" | "staging_synthetic" | "approved_production" | "retired" | undefined) ?? (quote.terms_version === "STAGING-TEST-TERMS-V1.0" ? "staging_synthetic" : "draft");
+
   const scope = (quote.scope as {
     summary?: string;
     deliverables?: string[];
@@ -323,6 +331,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
             validUntil={quote.valid_until}
             orderId={linkedOrderId}
             termsVersion={quote.terms_version}
+            termsClassification={termsClassification}
           />
         </div>
       </div>

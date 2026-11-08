@@ -1,57 +1,69 @@
-# Deployment and Operations Guide (V11.0)
+# Deployment and Operations Guide (V12.0)
 
 ## 1. Staging Infrastructure Status (`yamwmfgqqjwlfcjjkwzl`)
 
 - **Supabase Cloud Project:** `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (**DATABASE VERIFIED** & **STAGING E2E VERIFIED**)
 - **GitHub Repository:** `https://github.com/bhaifreakinsazzad-ops/NotRealEngine` (Default branch: `main`, synchronized)
-- **Database Schema:** All 30 canonical tables, 12 canonical services across 10 categories, RLS policies, state transition triggers, and private `project-files` storage bucket are live and verified by `npm.cmd run verify:staging` (**58/58 PASS**).
+- **Database Schema:** All 30 canonical tables, 12 canonical services across 10 categories, RLS policies, state transition triggers, and private `project-files` storage bucket are live and verified by `npm.cmd run verify:staging` (**62/62 PASS**, **0 unexpected cleanup errors**).
 
 ---
 
-## 2. Vercel Staging Preview & Release A Deployment Procedure
+## 2. Applying Migration `0005` in Supabase SQL Editor
 
-Because external Vercel account authentication is managed by the founder, connect the synchronized GitHub repository (`bhaifreakinsazzad-ops/NotRealEngine`) in Vercel using the following exact settings:
+Because PostgREST API keys (`anon` and `service_role`) do not grant superuser DDL execution over HTTP, paste and run [`supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql`](../supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql) in the **Supabase Dashboard SQL Editor** for project `yamwmfgqqjwlfcjjkwzl`.
 
-1. **Import Git Repository:**
-   - Select `bhaifreakinsazzad-ops/NotRealEngine` (Branch: `main`).
-   - Framework Preset: **Next.js**.
-   - Build Command: `npm run build`
-   - Output Directory: `.next`
-2. **Environment Variables (Set in Vercel Project Settings -> Environment Variables):**
-   - `NEXT_PUBLIC_SUPABASE_URL` = `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (Public)
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = `<your-supabase-anon-key>` (Public)
+Migration `0005` hardens the database boundary to match the already-active Next.js server-action guards:
+1. Revokes `EXECUTE` on `public.submit_project_brief(jsonb,text,text)` from `authenticated` (restricting execution strictly to `service_role`).
+2. Creates `public.commercial_terms_versions` (`draft`, `staging_synthetic`, `approved_production`, `retired`) and enforces terms classification + `public.is_org_admin` inside `public.decide_quote`.
+3. Attaches trigger `orders_financial_clearance_guard` (`public.verify_order_financial_clearance()`) on `public.orders`.
+4. Creates atomic RPC `public.initialize_project_from_order` and adds `role` column on `public.profiles`.
+
+---
+
+## 3. Vercel Hosted Staging Deployment Procedure
+
+Vercel CLI (`65.12.1`) is installed locally (`npx.cmd vercel`), and requires a one-time founder authentication or GitHub repo link:
+
+### Option A — Deploy via Vercel Dashboard (Recommended)
+1. Import `https://github.com/bhaifreakinsazzad-ops/NotRealEngine` (Branch: `main`).
+2. Configure Environment Variables (Preview & Production):
+   - `ENGINE_OS_ENV` = `staging` (for Preview/Staging) or `production` (for Production)
+   - `NEXT_PUBLIC_SUPABASE_URL` = `https://yamwmfgqqjwlfcjjkwzl.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = `<your-supabase-anon-key>`
    - `SUPABASE_SERVICE_ROLE_KEY` = `<your-supabase-service-role-key>` (**Server-Only / Sensitive**)
    - `RATE_LIMIT_SECRET` = `<random-32-byte-hex-secret>` (**Server-Only / Sensitive**)
-   - `PAYMENTS_ENABLED` = `false` (Keep `false` for Release A)
-   - `NOTIFICATIONS_ENABLED` = `false` (Keep `false` for Release A)
+   - `PAYMENTS_ENABLED` = `false`
+   - `NOTIFICATIONS_ENABLED` = `false`
    - `PAYMENT_WEBHOOK_SECRET` = `<random-32-byte-secret>` (**Server-Only**)
    - `CRON_SECRET` = `<random-32-byte-secret>` (**Server-Only**)
-3. **Supabase Auth URL Configuration:**
-   - In Supabase Dashboard (`yamwmfgqqjwlfcjjkwzl`) -> **Authentication** -> **URL Configuration**:
-     - Set **Site URL** to your Vercel deployment URL (e.g. `https://not-real-engine.vercel.app` or custom staging domain).
-     - Add `https://*.vercel.app/**` and `http://localhost:3000/**` to **Redirect URLs**.
+3. In Supabase Dashboard (`yamwmfgqqjwlfcjjkwzl`) -> **Authentication** -> **URL Configuration**:
+   - Set **Site URL** to your hosted Vercel URL.
+   - Add `https://*.vercel.app/**` and `http://localhost:3000/**` to **Redirect URLs**.
+
+### Option B — Deploy via Local Vercel CLI
+```powershell
+npx.cmd vercel login
+npx.cmd vercel link
+npx.cmd vercel deploy
+```
 
 ---
 
-## 3. Initial Founder Staff/Admin Account Promotion
+## 4. First Founder Super-Admin Account Promotion (Section 8)
 
-Self-promotion to `is_staff = true` is strictly blocked by RLS (`profiles_self_update`). To promote the founder account:
+Synthetic staging staff accounts are automatically deleted after `npm.cmd run verify:staging`. To promote the founder's verified Supabase Auth account without any public staff-registration surface:
 
-1. Sign up or sign in once via `/signup` or Supabase Dashboard -> **Authentication** -> **Users**.
-2. Run the following SQL in the Supabase SQL Editor (which runs as `postgres` superuser):
-   ```sql
-   UPDATE public.profiles
-   SET is_staff = true
-   WHERE id = (
-     SELECT id FROM auth.users WHERE email = '<founder-email@notrealengine.com>'
-   );
-   ```
-3. Verify staff access by navigating to `/admin`.
+### Option A — Via CLI Script
+```powershell
+node scripts/promote-founder-admin.mjs --user-id <verified-founder-auth-user-uuid>
+# or
+node scripts/promote-founder-admin.mjs --email <verified-founder-email>
+```
 
----
-
-## 4. Backup, Monitoring & Rollback
-
-- **Backups:** Enable daily backups / Point-in-Time Recovery (PITR) in Supabase project settings. Treat `quote_acceptances`, `orders`, `payment_transactions`, `project_files`, and `audit_logs` as immutable high-value records.
-- **Monitoring:** `SENTRY_DSN` is reserved for error tracking. Review `/admin` telemetry banners and `audit_logs` regularly.
-- **Rollback:** Revert to the previous verified Vercel deployment in one click. Database changes strictly use forward-compatible additive migrations (`supabase/migrations/202611080001` through `202611080005`).
+### Option B — Via Supabase SQL Editor
+```sql
+UPDATE public.profiles
+SET is_staff = true,
+    role = 'super_admin'
+WHERE id = '<verified-founder-auth-user-uuid>';
+```

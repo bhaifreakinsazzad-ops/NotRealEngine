@@ -19,17 +19,29 @@ export function AdminOrderControls({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showManualSettlementForm, setShowManualSettlementForm] = useState(false);
+  const [settlementRef, setSettlementRef] = useState("");
+  const [settlementMethod, setSettlementMethod] = useState<"bank_transfer" | "corporate_po" | "staging_test_clearance">("bank_transfer");
+  const [settlementNote, setSettlementNote] = useState("");
 
-  async function handleStateTransition(nextState: OrderState) {
+  async function handleStateTransition(
+    nextState: OrderState,
+    manualSettlement?: {
+      reference: string;
+      method: "bank_transfer" | "corporate_po" | "staging_test_clearance";
+      note?: string;
+    }
+  ) {
     setLoading(true);
     setError(null);
     try {
-      const res = await updateOrderStateAction({ orderId, nextState });
+      const res = await updateOrderStateAction({ orderId, nextState, manualSettlement });
       if (!res.ok) {
         setError(res.error);
         setLoading(false);
         return;
       }
+      setShowManualSettlementForm(false);
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to update order state.");
@@ -64,13 +76,13 @@ export function AdminOrderControls({
           <>
             <button
               type="button"
-              onClick={() => handleStateTransition("confirmed")}
+              onClick={() => setShowManualSettlementForm((prev) => !prev)}
               disabled={loading}
               className="btn btn-primary"
               style={{ fontSize: "0.85rem" }}
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-              Confirm Payment & Order
+              Record Manual Settlement & Confirm
             </button>
 
             <button
@@ -168,6 +180,92 @@ export function AdminOrderControls({
           </button>
         )}
       </div>
+
+      {state === "awaiting_payment" && showManualSettlementForm && (
+        <div
+          style={{
+            border: "1px solid var(--cyan)",
+            background: "var(--bg-deep)",
+            padding: "1rem",
+            display: "grid",
+            gap: "0.75rem",
+            maxWidth: "520px"
+          }}
+        >
+          <span className="mono cyan" style={{ fontSize: "0.76rem", fontWeight: 800 }}>
+            AUDITED MANUAL SETTLEMENT RECORD
+          </span>
+          <p className="muted" style={{ margin: 0, fontSize: "0.8rem" }}>
+            Orders cannot transition to <code>confirmed</code> without either a verified payment gateway transaction or an explicit audited settlement record.
+          </p>
+          <div className="field">
+            <label>Settlement Reference (Bank Wire / PO / Test ID) *</label>
+            <input
+              type="text"
+              className="input mono"
+              placeholder="e.g. WIRE-BDT-20261108-001"
+              value={settlementRef}
+              onChange={(e) => setSettlementRef(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          <div className="field">
+            <label>Settlement Method *</label>
+            <select
+              className="select"
+              value={settlementMethod}
+              onChange={(e) =>
+                setSettlementMethod(
+                  e.target.value as "bank_transfer" | "corporate_po" | "staging_test_clearance"
+                )
+              }
+              disabled={loading}
+            >
+              <option value="bank_transfer">Bank Wire / RTGS / EFT</option>
+              <option value="corporate_po">Approved Corporate PO / Invoice</option>
+              <option value="staging_test_clearance">Staging Synthetic Verification Clearance</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Audit Note</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Optional verification note"
+              value={settlementNote}
+              onChange={(e) => setSettlementNote(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() =>
+                handleStateTransition("confirmed", {
+                  reference: settlementRef,
+                  method: settlementMethod,
+                  note: settlementNote || undefined
+                })
+              }
+              disabled={loading}
+              className="btn btn-primary"
+              style={{ fontSize: "0.82rem" }}
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              Verify & Confirm Order
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowManualSettlementForm(false)}
+              disabled={loading}
+              className="btn btn-quiet"
+              style={{ fontSize: "0.82rem" }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -537,13 +537,22 @@ export function AdminQuoteEditor({
 
                 <div className="field">
                   <label>Terms Document Version</label>
-                  <input
-                    type="text"
-                    className="input mono"
+                  <select
+                    className="select mono"
                     value={termsVersion}
                     onChange={(e) => setTermsVersion(e.target.value)}
                     disabled={loading}
-                  />
+                  >
+                    <option value="ENGINE//OS-TERMS-V1.0">
+                      ENGINE//OS-TERMS-V1.0 (Draft — Acceptance Held)
+                    </option>
+                    <option value="STANDARD-V1.0">
+                      STANDARD-V1.0 (Draft — Acceptance Held)
+                    </option>
+                    <option value="STAGING-TEST-TERMS-V1.0">
+                      STAGING-TEST-TERMS-V1.0 (Staging Synthetic — Non-Binding)
+                    </option>
+                  </select>
                 </div>
               </div>
 
