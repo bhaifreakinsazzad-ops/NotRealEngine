@@ -90,20 +90,28 @@ async function runStagingVerification() {
   // Phase 3: Database & Table Inspections
   console.log("\n" + bold("--- 3. DATABASE SCHEMA & SEED VERIFICATION ---"));
   try {
-    const { error: catErr } = await supabase.from("service_categories").select("count");
-    if (catErr) {
-      recordResult("Database", "Query service_categories table", "FAIL", catErr.message);
-    } else {
-      recordResult("Database", "Query service_categories table", "PASS", "Connected");
-    }
-
     const { data: srvData, error: srvErr } = await supabase.from("services").select("id, name, slug");
     if (srvErr) {
+      recordResult("Database", "Query services table", "FAIL", srvErr.message);
       recordResult("Database", "Canonical 12 Services Seed", "FAIL", srvErr.message);
-    } else if (srvData && srvData.length === 12) {
-      recordResult("Database", "Canonical 12 Services Seed", "PASS", "Exactly 12 canonical services verified");
     } else {
-      recordResult("Database", "Canonical 12 Services Seed", "FAIL", `Found ${srvData?.length ?? 0} services; expected 12`);
+      recordResult("Database", "Query services table", "PASS", "Connected");
+      if (srvData && srvData.length === 12) {
+        recordResult("Database", "Canonical 12 Services Seed", "PASS", "Exactly 12 canonical services verified");
+      } else {
+        recordResult("Database", "Canonical 12 Services Seed", "FAIL", `Found ${srvData?.length ?? 0} services; expected 12`);
+      }
+    }
+
+    // Check presence of core workflow tables
+    const coreTables = ["projects", "quotes", "orders", "leads", "project_files", "profiles", "organizations"];
+    for (const t of coreTables) {
+      const { error: tErr } = await supabase.from(t).select("count").limit(0);
+      if (tErr) {
+        recordResult("Database", `Table public.${t}`, "FAIL", tErr.message);
+      } else {
+        recordResult("Database", `Table public.${t}`, "PASS", "Verified");
+      }
     }
 
     // Check RPC functions
@@ -112,11 +120,20 @@ async function runStagingVerification() {
       p_request_hash: "probe-test",
       p_reference: "PROBE"
     });
-    // Expected to fail with validation or succeed, but not 404 function not found
     if (rpcErr && rpcErr.message.includes("does not exist")) {
       recordResult("Database", "RPC submit_project_brief Existence", "FAIL", "Function not found in schema");
     } else {
       recordResult("Database", "RPC submit_project_brief Existence", "PASS", "Function exists in schema");
+    }
+
+    const { error: decideErr } = await supabase.rpc("decide_quote", {
+      p_quote_id: "00000000-0000-0000-0000-000000000000",
+      p_decision: "rejected"
+    });
+    if (decideErr && decideErr.message.includes("does not exist")) {
+      recordResult("Database", "RPC decide_quote Existence", "FAIL", "Function not found in schema");
+    } else {
+      recordResult("Database", "RPC decide_quote Existence", "PASS", "Function exists in schema");
     }
   } catch (err) {
     recordResult("Database", "Schema Checks", "FAIL", err.message);
