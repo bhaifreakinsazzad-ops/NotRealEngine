@@ -137,6 +137,23 @@ describe("Tenant Security & Path Traversal Guards", () => {
       expect(res.fileId).toBe("file-999");
     }
   });
+
+  it("rejects cross-organization file registration when project belongs to another organization", async () => {
+    const foreignOrgId = "99999999-9999-4999-8999-999999999999";
+    const res = await registerUploadedFileAction({
+      projectId: validProjectId,
+      organizationId: foreignOrgId, // Mismatched organization
+      storagePath: `${validProjectId}/attempt.pdf`,
+      originalName: "attempt.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toMatch(/mismatch/i);
+    }
+  });
 });
 
 describe("Cryptographic Webhook Signature Verification", () => {
