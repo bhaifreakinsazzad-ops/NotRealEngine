@@ -1,9 +1,16 @@
 -- ==============================================================================
--- ENGINE//OS — FULL IDEMPOTENT STAGING DATABASE MIGRATION
+-- ENGINE//OS — CANONICAL STAGING DATABASE BOOTSTRAP (MIGRATIONS 0001 + 0002 + 0003)
 -- Platform: NOTREAL ENGINE, LLC
--- Safe to run in Supabase SQL Editor on a fresh or existing database.
--- All statements are safe, idempotent, and non-destructive.
+-- Purpose: Direct, single-run initialization in Supabase Cloud SQL Editor.
+-- Note: This is an exact composition of canonical versioned migrations:
+--   - 202611080001_engine_os_foundation.sql
+--   - 202611080002_seed_canonical_services.sql
+--   - 202611080003_security_hardening.sql
 -- ==============================================================================
+
+-- ------------------------------------------------------------------------------
+-- PART 1: FOUNDATION SCHEMA, STATE GUARDS & SECURITY POLICIES (0001)
+-- ------------------------------------------------------------------------------
 
 -- 1. EXTENSIONS & ENUMS
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -459,7 +466,7 @@ CREATE TRIGGER audit_logs_immutable BEFORE UPDATE OR DELETE ON public.audit_logs
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  INSERT INTO public.profiles(id, full_name) VALUES(new.id, nullif(new.raw_user_meta_data->>'full_name','')) ON CONFLICT DO NOTHING;
+  INSERT INTO public.profiles(id, full_name) VALUES(new.id, nullif(new.raw_user_meta_data->>'full_name','')) ON CONFLICT (id) DO NOTHING;
   RETURN new;
 END $$;
 
@@ -467,7 +474,7 @@ DO $$ BEGIN
   DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
   CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'Skipping auth.users trigger setup (handled by Supabase Auth hook or insufficient permissions): %', SQLERRM;
+  RAISE NOTICE 'Skipping direct auth.users trigger setup (requires superuser/postgres role): %', SQLERRM;
 END $$;
 
 CREATE OR REPLACE FUNCTION public.submit_project_brief(p_payload jsonb, p_request_hash text, p_reference text)
@@ -554,7 +561,7 @@ ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rate_limit_buckets ENABLE ROW LEVEL SECURITY;
 
--- 9. ROW LEVEL SECURITY POLICIES (Idempotent Drop + Create)
+-- 9. ROW LEVEL SECURITY POLICIES
 DROP POLICY IF EXISTS profiles_self_select ON public.profiles;
 CREATE POLICY profiles_self_select ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid() OR public.current_user_is_staff());
 
@@ -699,13 +706,13 @@ CREATE POLICY analytics_staff_select ON public.analytics_events FOR SELECT TO au
 DROP POLICY IF EXISTS webhooks_staff_select ON public.webhook_events;
 CREATE POLICY webhooks_staff_select ON public.webhook_events FOR SELECT TO authenticated USING (public.current_user_is_staff());
 
--- 10. STORAGE BUCKET & STORAGE RLS POLICIES
+-- 10. STORAGE BUCKET & INITIAL STORAGE POLICIES
 DO $$ BEGIN
   INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
   VALUES ('project-files', 'project-files', false, 52428800, ARRAY['application/pdf','image/png','image/jpeg','text/plain','application/zip'])
   ON CONFLICT (id) DO NOTHING;
 EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'Storage bucket insert skipped or not allowed via raw SQL: %', SQLERRM;
+  RAISE NOTICE 'Storage bucket insert skipped (bucket may be managed via dashboard): %', SQLERRM;
 END $$;
 
 DO $$ BEGIN
@@ -727,28 +734,13 @@ DO $$ BEGIN
           AND (public.is_org_member(p.organization_id) OR public.current_user_is_staff())
       )
     );
-
-    DROP POLICY IF EXISTS project_files_storage_delete ON storage.objects;
-    CREATE POLICY project_files_storage_delete ON storage.objects FOR DELETE TO authenticated USING (
-      bucket_id = 'project-files' AND EXISTS (
-        SELECT 1 FROM public.projects p 
-        WHERE p.id::text = (storage.foldername(name))[1] 
-          AND (public.is_org_admin(p.organization_id) OR public.current_user_is_staff())
-      )
-    );
-
-    DROP POLICY IF EXISTS project_files_storage_update ON storage.objects;
-    CREATE POLICY project_files_storage_update ON storage.objects FOR UPDATE TO authenticated USING (
-      bucket_id = 'project-files' AND EXISTS (
-        SELECT 1 FROM public.projects p 
-        WHERE p.id::text = (storage.foldername(name))[1] 
-          AND (public.is_org_admin(p.organization_id) OR public.current_user_is_staff())
-      )
-    );
   END IF;
 END $$;
 
--- 11. CANONICAL SERVICE REGISTRY SEED (10 Categories, 12 Offers)
+-- ------------------------------------------------------------------------------
+-- PART 2: CANONICAL SERVICE REGISTRY SEED (0002)
+-- ------------------------------------------------------------------------------
+
 INSERT INTO public.services (id, category_id, slug, name, summary, sales_mode, active, canonical, display_order) VALUES
 ('SVC-01-SPW','website-development','single-page-website-development','Single Page Website Development','A focused one-page website with a maximum of five sections.','quote_required',true,true,1),
 ('SVC-02-MIN','website-development','mini-website-development','Mini Website Development','A compact one-page website with a maximum of eight sections.','quote_required',true,true,2),
@@ -770,6 +762,39 @@ ON CONFLICT (id) DO UPDATE SET
   sales_mode = excluded.sales_mode,
   display_order = excluded.display_order;
 
-INSERT INTO public.packages (service_id, name, status, active, orderable, approval_metadata)
-VALUES ('SVC-01-SPW', 'Launch Promotion', 'pending_approval', false, false, jsonb_build_object('recorded_amount_bdt', 999, 'note', 'Regular price, promotion duration, full package approval, and checkout readiness remain unresolved.'))
-ON CONFLICT DO NOTHING;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.packages WHERE service_id = 'SVC-01-SPW' AND name = 'Launch Promotion') THEN
+    INSERT INTO public.packages (service_id, name, status, active, orderable, approval_metadata)
+    VALUES ('SVC-01-SPW', 'Launch Promotion', 'pending_approval', false, false, jsonb_build_object('recorded_amount_bdt', 999, 'note', 'Regular price, promotion duration, full package approval, and checkout readiness remain unresolved.'));
+  END IF;
+END $$;
+
+-- ------------------------------------------------------------------------------
+-- PART 3: SECURITY HARDENING & STORAGE LIFECYCLE (0003)
+-- ------------------------------------------------------------------------------
+
+-- Grant brief submission RPC to authenticated users as well as anon
+GRANT EXECUTE ON FUNCTION public.submit_project_brief(jsonb,text,text) TO authenticated;
+
+-- Storage objects deletion & update policies for organization admins and staff
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'objects') THEN
+    DROP POLICY IF EXISTS project_files_storage_delete ON storage.objects;
+    CREATE POLICY project_files_storage_delete ON storage.objects FOR DELETE TO authenticated USING (
+      bucket_id = 'project-files' AND EXISTS (
+        SELECT 1 FROM public.projects p 
+        WHERE p.id::text = (storage.foldername(name))[1] 
+          AND (public.is_org_admin(p.organization_id) OR public.current_user_is_staff())
+      )
+    );
+
+    DROP POLICY IF EXISTS project_files_storage_update ON storage.objects;
+    CREATE POLICY project_files_storage_update ON storage.objects FOR UPDATE TO authenticated USING (
+      bucket_id = 'project-files' AND EXISTS (
+        SELECT 1 FROM public.projects p 
+        WHERE p.id::text = (storage.foldername(name))[1] 
+          AND (public.is_org_admin(p.organization_id) OR public.current_user_is_staff())
+      )
+    );
+  END IF;
+END $$;
