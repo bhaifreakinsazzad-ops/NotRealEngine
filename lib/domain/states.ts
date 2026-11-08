@@ -25,6 +25,44 @@ export const orderTransitions: Record<OrderState, readonly OrderState[]> = {
   on_hold: ["awaiting_payment", "confirmed", "in_production", "cancelled"]
 };
 
+export const projectStates = [
+  "awaiting_requirements",
+  "requirements_review",
+  "ready_for_production",
+  "in_progress",
+  "internal_qa",
+  "client_review",
+  "revision",
+  "approved",
+  "delivered",
+  "on_hold",
+  "cancelled"
+] as const;
+export type ProjectState = (typeof projectStates)[number];
+
+export const projectTransitions: Record<ProjectState, readonly ProjectState[]> = {
+  awaiting_requirements: ["requirements_review", "on_hold", "cancelled"],
+  requirements_review: ["awaiting_requirements", "ready_for_production", "on_hold", "cancelled"],
+  ready_for_production: ["in_progress", "on_hold", "cancelled"],
+  in_progress: ["internal_qa", "on_hold", "cancelled"],
+  internal_qa: ["in_progress", "client_review", "on_hold"],
+  client_review: ["revision", "approved", "on_hold"],
+  revision: ["in_progress", "client_review", "on_hold"],
+  approved: ["delivered"],
+  delivered: [],
+  cancelled: [],
+  on_hold: [
+    "awaiting_requirements",
+    "requirements_review",
+    "ready_for_production",
+    "in_progress",
+    "internal_qa",
+    "client_review",
+    "revision",
+    "cancelled"
+  ]
+};
+
 export function canTransition<S extends string>(from: S, to: S, map: Record<S, readonly S[]>): boolean {
   return map[from]?.includes(to) ?? false;
 }

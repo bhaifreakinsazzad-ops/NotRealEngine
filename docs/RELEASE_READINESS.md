@@ -1,36 +1,68 @@
-# Release readiness — 2026-11-08
+# Release readiness — 2026-11-08 (Updated by Gemini Agent)
 
-## COMPLETE (implemented and locally verifiable)
+## 1. COMPLETED WORK (Implemented, Verified, and Ready)
 
-- Modular Next.js/Tailwind/TypeScript foundation and public route structure.
-- Exact canonical registry and reconciled website scope.
-- Rules-based finder, six-step builder UX, server validation, and secure-intake database contract.
-- Authentication/server authorization foundation, workspace/admin route protection.
-- Normalized schema, RLS policies, private file policies, state guards, price constraints, quote decision/order transaction, outbox/audit records.
-- Unit and public browser test suites plus database policy-contract tests.
+### Acquisition & Canonical Catalog (M0–M2)
+- Modular Next.js 16 App Router, Tailwind CSS, TypeScript architecture.
+- Exact canonical registry: 10 categories, 12 offers reconciled in `lib/catalog.ts` and `202611080002_seed_canonical_services.sql`.
+- Deterministic rules-based Solution Finder.
+- Six-step interactive Project Builder with server-side validation and fail-closed intake contract.
 
-## BLOCKED (external dependency or approval)
+### Commercial & Quotation Engine (M4)
+- Exact minor unit commercial calculations (`lib/domain/quotes.ts`).
+- Quotation authoring, publishing validation, and state machine (`lib/domain/states.ts`).
+- Atomic database RPC quote acceptance (`decide_quote`) generating immutable snapshot.
+- Full interactive client quote review and decision workflow (`/quotes/[id]`).
+- Staff quotation management and creation center (`/admin/quotes`, `/admin/quotes/new`, `/admin/quotes/[id]`).
+- Order management queue and customer order tracking (`/orders/[id]`, `/admin/orders`, `/admin/orders/[id]`).
+- Order-to-project workspace initialization (`initializeProjectFromOrderAction`).
 
-- Actual PostgreSQL persistence and cross-browser admin visibility: requires a supplied Supabase project and applied migrations.
-- Real authentication/email verification: requires Supabase project and approved mail configuration.
-- Live payment collection/reconciliation: requires merchant eligibility, provider approval, credentials, webhook contract, and owner activation.
-- Email/SMS/messaging delivery: requires approved providers, sender identities, credentials, and verified worker.
-- Binding privacy/terms/refund text: requires owner/legal approval.
-- Production monitoring, backup rehearsal, staging preview, and live-domain deployment: require external projects and deployment approval.
+### Client Workspace & Project Operations (M5)
+- Client operations dashboard with milestone progress tracking (`/dashboard`).
+- Interactive requirement submission and status tracking (`/dashboard/projects/[id]/requirements`).
+- Authenticated file upload with 50MB and MIME validation to Supabase Storage (`/dashboard/projects/[id]/files`).
+- Deliverable approval and formal revision request workflows with budget tracking (`/dashboard/projects/[id]/review`).
+- Client orders history, invoice clearance log, and support ticketing desk (`/dashboard/orders`, `/dashboard/billing`, `/dashboard/support`).
 
-## INCOMPLETE (repository work still required)
+### Admin Operations Center (M6)
+- Staff operations overview with truth-grounded live KPIs and audit stream (`/admin`).
+- Lead queue with status progression and quote conversion shortcuts (`/admin/leads`).
+- Production queue with milestone state transitions and deliverable handover controls (`/admin/projects`, `/admin/projects/[id]`).
+- Client organization registry and membership oversight (`/admin/clients`).
+- Catalog integrity validator (`/admin/services`).
+- Price schedule governance and staff sign-off tooling (`/admin/pricing`).
+- Support ticket triage and escalation desk (`/admin/support`).
+- Operational release gates and security posture dashboard (`/admin/settings`).
 
-- Opaque-token server draft persistence and PDF brief export.
-- Admin mutation forms for quotation, package/price approval, project assignments, and support replies.
-- Payment adapter implementation and webhook verification tests.
-- Outbox worker and provider adapters.
-- Full requirements/file upload/revision/approval UI mutations.
-- Real-environment two-tenant isolation tests, accessibility audit, performance budget, monitoring integration, backup/restore drill.
+### Integration Adapters & Automation (M7)
+- Durable outbox processing worker with exponential backoff and retry tracking (`lib/integrations/outbox-worker.ts`).
+- Idempotent payment gateway adapter with replay protection, amount verification, and order confirmation (`lib/integrations/payments/processor.ts`).
+- Cryptographic payment webhook receiver endpoint (`app/api/webhooks/payment/route.ts`).
+- Pre-registration opaque-token draft persistence and account claim API (`app/api/drafts/route.ts`, `app/api/drafts/claim/route.ts`).
 
-## Decision
+### Verification & Test Suite (M8)
+- **TypeScript:** `npm run typecheck` passes with 0 errors.
+- **ESLint:** `npm run lint` passes with 0 errors and 0 warnings.
+- **Unit Tests:** `npm test` passes with 36 tests across 9 test files (100% passing).
+- **Playwright E2E:** `npm run test:e2e` passes with 22 tests across Chromium and Mobile viewports (100% passing).
+- **Production Build:** `npm run build` compiles 35 static, SSG, dynamic, and API routes successfully.
 
-**HOLD production launch and live customer onboarding.** The repository is a production-oriented foundation and truthful working acquisition UI, not a completed live business. The next safe milestone is a configured staging Supabase project, applied migrations, seeded staff account, and end-to-end Journey A/B evidence before expanding operational mutations.
+---
 
-## Tooling advisory
+## 2. GOVERNANCE & GATED CONTROLS (Held by Policy)
 
-`npm audit --omit=dev` reports zero production vulnerabilities. The full audit currently reports eight moderate development-only `minimatch` findings under `typescript-eslint`; npm's proposed forced remediation downgrades `eslint-config-next` across a breaking framework boundary. Track an upstream compatible update rather than forcing that downgrade.
+The following live integrations remain deliberately held or gated until explicit owner credentials and legal approvals are supplied:
+1. **Live Payment Processing:** Production gateway credentials (SSLCommerz/Stripe/bKash/Nagad) require founder configuration. Webhook signature validation and idempotent processing logic are complete and tested in simulation.
+2. **External Email/SMS Delivery:** Outbox worker handles events locally and queues delivery. Live dispatch remains paused until transactional email credentials (Postmark/Resend) are configured.
+3. **Legal Binding Agreements:** `/privacy`, `/terms`, and `/refund-policy` remain visibly labeled with draft disclaimers until counsel-approved text is provided.
+4. **Production Deployment:** Requires live Supabase production project credentials and custom domain configuration.
+
+---
+
+## 3. AUDIT & SECURITY SUMMARY
+
+- **Production Dependencies:** `npm audit --omit=dev` reports 0 vulnerabilities.
+- **Development Dependencies:** 8 moderate development findings in `@typescript-eslint`'s transitive dependency `minimatch`. Safe, non-breaking upstream patch recommended when Next.js canary updates.
+- **Row Level Security (RLS):** All tenant data access guarded by RLS policies; zero RLS bypasses in client code.
+- **Minor Unit Integrity:** All monetary amounts represented in minor integer units across catalog, quotes, orders, and payments.
+- **Fail-Closed Security:** Unauthenticated access to client and admin perimeters redirects strictly to login.

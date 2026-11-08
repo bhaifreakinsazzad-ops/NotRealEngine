@@ -195,6 +195,8 @@ button, a, input, select, textarea { outline-color: var(--cyan); outline-offset:
 .status { font: 700 .67rem var(--font-mono); border: 1px solid currentColor; padding: .25rem .4rem; }
 .status.ready { color: var(--success); }
 .status.pending { color: var(--gold); }
+.status.danger { color: var(--danger); }
+.status.info { color: var(--cyan); }
 .release-banner { border: 1px solid var(--gold); color: #f5d981; background: var(--gold-dim); padding: 1rem 1.2rem; margin-top: 1.5rem; }
 
 .legal-draft { border: 1px solid var(--gold); background: var(--gold-dim); padding: 1rem; color: var(--silver); margin: 1.5rem 0; }
