@@ -1,6 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getServiceRoleClient } from "@/lib/supabase/service";
+import { extractClientIp } from "@/lib/http/client-ip";
+
+const MAX_BODY_BYTES = 64 * 1024;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 30;
+
+// Best-effort, per-instance only: does not share state across serverless invocations.
+// Primary abuse control is the mandatory shared-secret auth below; this is defense in depth.
+const rateLimitBuckets = new Map<string, { count: number; windowStart: number }>();
+
+function isRateLimited(key: string): boolean {
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitBuckets.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
+/**
+ * Constant-time secret comparison. Hashing both sides to a fixed-length digest before
+ * comparing means timingSafeEqual never short-circuits on a length mismatch, which would
+ * otherwise leak the configured secret's length to an attacker.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  const digestA = crypto.createHash("sha256").update(a).digest();
+  const digestB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(digestA, digestB);
+}
+
+/**
+ * GoHighLevel/LeadConnector "Workflow Webhook" actions (what this adapter targets) support a
+ * custom request header but do not sign the payload — there is no HMAC/body-signature scheme
+ * to verify here. (The separate GHL Marketplace App webhook product signs with a JWT via
+ * x-wh-signature, but this integration does not use that product.) Authentication is therefore
+ * a mandatory, fail-closed shared secret delivered via header only.
+ */
+function extractProvidedSecret(request: NextRequest): string | null {
+  const headerKey =
+    request.headers.get("x-leadconnector-key") ||
+    request.headers.get("x-webhook-secret") ||
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const trimmed = headerKey?.trim();
+  return trimmed ? trimmed : null;
+}
 
 interface LeadConnectorPayload {
   type?: string;
@@ -48,53 +95,62 @@ export async function GET(request: NextRequest) {
     supportedEvents: ["Appointment", "FormSubmission", "ContactCreate", "InboundMessage"],
     configurationInstructions: {
       webhookUrl: `${request.nextUrl.origin}/api/webhooks/leadconnector`,
-      secretHeader: "x-leadconnector-key",
-      queryParam: "?secret=<YOUR_SECRET>"
+      secretHeader: "x-leadconnector-key"
     }
   });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const configuredSecret = process.env.LEADCONNECTOR_WEBHOOK_SECRET;
-
-    // 1. Verify Authentication / Secret
-    const headerKey =
-      request.headers.get("x-leadconnector-key") ||
-      request.headers.get("x-webhook-secret") ||
-      request.headers.get("authorization")?.replace("Bearer ", "");
-    const querySecret = request.nextUrl.searchParams.get("secret");
-    const providedSecret = headerKey || querySecret;
-
-    if (configuredSecret) {
-      if (!providedSecret || providedSecret !== configuredSecret) {
-        return NextResponse.json(
-          { error: "unauthorized: invalid or missing leadconnector secret token" },
-          { status: 401 }
-        );
-      }
-    } else {
-      // In staging/preview, warn if unconfigured but allow authenticated tests with x-leadconnector-key = test-staging
-      if (process.env.ENGINE_OS_ENV === "production" && !providedSecret) {
-        return NextResponse.json(
-          { error: "unauthorized: webhook secret required in production" },
-          { status: 401 }
-        );
-      }
+    // 1. Abuse control (best-effort, IP-keyed) — runs before auth so a flood of invalid
+    // credential attempts is also throttled, not just successful requests.
+    const clientIp = extractClientIp(request.headers);
+    if (isRateLimited(clientIp)) {
+      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
     }
 
-    // 2. Parse Payload
+    // 2. Mandatory, fail-closed authentication. No environment-based bypass: if the secret
+    // is not configured, every request is rejected, not just ones in a "production" environment.
+    const configuredSecret = process.env.LEADCONNECTOR_WEBHOOK_SECRET;
+    if (!configuredSecret) {
+      console.error("[LeadConnector Webhook] Rejected request: LEADCONNECTOR_WEBHOOK_SECRET is not configured.");
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const providedSecret = extractProvidedSecret(request);
+    if (!providedSecret || !constantTimeEqual(providedSecret, configuredSecret)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    // 3. Bound request size before reading/parsing the body.
+    const declaredLength = Number(request.headers.get("content-length") || "0");
+    if (declaredLength > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
+    }
+
+    const rawBody = await request.text();
+    if (Buffer.byteLength(rawBody, "utf8") > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
+    }
+
+    // 4. Parse Payload
     let body: LeadConnectorPayload;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
       return NextResponse.json(
         { error: "invalid_json: payload must be valid JSON" },
         { status: 400 }
       );
     }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return NextResponse.json(
+        { error: "invalid_payload: payload must be a JSON object" },
+        { status: 400 }
+      );
+    }
 
-    // 3. Normalize Event Type and Source
+    // 5. Normalize Event Type and Source
     const eventType = body.type || body.event || (body.appointment ? "Appointment" : body.form ? "FormSubmission" : "ContactCreate");
     let normalizedSource = "leadconnector_general";
     if (eventType.toLowerCase().includes("appoint") || body.appointment) {
@@ -105,7 +161,7 @@ export async function POST(request: NextRequest) {
       normalizedSource = "leadconnector_chat";
     }
 
-    // 4. Normalize Contact Information
+    // 6. Normalize Contact Information
     const rawName =
       body.name ||
       [body.first_name, body.last_name].filter(Boolean).join(" ") ||
@@ -130,11 +186,11 @@ export async function POST(request: NextRequest) {
       body.company_name ||
       (contactName ? `${contactName}'s Team` : "Direct Client");
 
-    // 5. Canonical Service Resolution
+    // 7. Canonical Service Resolution
     // Default to Single Page Website (SVC-01-SPW) or Business Website (SVC-03-BWD)
     const serviceId = body.service_id || "SVC-01-SPW";
 
-    // 6. Generate Traceable Provider Reference
+    // 8. Generate Traceable Provider Reference
     const eventCode = normalizedSource === "leadconnector_booking"
       ? "BOOK"
       : normalizedSource === "leadconnector_onboarding"
@@ -145,7 +201,7 @@ export async function POST(request: NextRequest) {
     const randomHex = crypto.randomBytes(3).toString("hex").toUpperCase();
     const reference = `GHL-${eventCode}-${randomHex}`;
 
-    // 7. Store in PostgreSQL via Supabase Service Role Client
+    // 9. Store in PostgreSQL via Supabase Service Role Client
     const supabase = getServiceRoleClient();
 
     // Check for recent duplicate (within 1 hour) with same email and source
@@ -204,11 +260,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (briefErr || !brief) {
-      console.error("[LeadConnector Webhook] Failed to create project brief:", briefErr);
-      return NextResponse.json(
-        { error: "database_error", details: briefErr?.message },
-        { status: 500 }
-      );
+      console.error("[LeadConnector Webhook] Failed to create project brief:", briefErr?.code, briefErr?.message);
+      return NextResponse.json({ error: "database_error" }, { status: 500 });
     }
 
     // Create Lead Record
@@ -222,11 +275,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (leadErr || !lead) {
-      console.error("[LeadConnector Webhook] Failed to create lead:", leadErr);
-      return NextResponse.json(
-        { error: "database_error", details: leadErr?.message },
-        { status: 500 }
-      );
+      console.error("[LeadConnector Webhook] Failed to create lead:", leadErr?.code, leadErr?.message);
+      return NextResponse.json({ error: "database_error" }, { status: 500 });
     }
 
     // Record Audit Log Event
@@ -257,8 +307,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "internal error";
-    console.error("[LeadConnector Webhook] Unhandled exception:", err);
-    return NextResponse.json({ error: "internal_server_error", message }, { status: 500 });
+    console.error("[LeadConnector Webhook] Unhandled exception:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "internal_server_error" }, { status: 500 });
   }
 }
