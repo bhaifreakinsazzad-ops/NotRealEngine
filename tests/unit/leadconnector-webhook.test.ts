@@ -2,49 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, POST } from "@/app/api/webhooks/leadconnector/route";
 
-// Mock Supabase service role client
-const mockInsertBrief = vi.fn();
-const mockInsertLead = vi.fn();
-const mockInsertAudit = vi.fn();
-const mockSelectBrief = vi.fn();
+// Mock Supabase service role client: the route now ingests through a single atomic RPC
+// (public.ingest_leadconnector_event) rather than separate table inserts.
+const mockRpc = vi.fn();
 
 vi.mock("@/lib/supabase/service", () => ({
   getServiceRoleClient: () => ({
-    from: (table: string) => {
-      if (table === "project_briefs") {
-        return {
-          insert: () => ({
-            select: () => ({
-              single: mockInsertBrief
-            })
-          }),
-          select: () => ({
-            eq: () => ({
-              gte: () => ({
-                limit: () => ({
-                  maybeSingle: mockSelectBrief
-                })
-              })
-            })
-          })
-        };
-      }
-      if (table === "leads") {
-        return {
-          insert: () => ({
-            select: () => ({
-              single: mockInsertLead
-            })
-          })
-        };
-      }
-      if (table === "audit_logs") {
-        return {
-          insert: mockInsertAudit
-        };
-      }
-      return {};
-    }
+    rpc: (...args: unknown[]) => mockRpc(...args)
   })
 }));
 
@@ -89,10 +53,7 @@ function makeRequest(opts: {
 }
 
 function noPrivilegedWritesOccurred() {
-  expect(mockSelectBrief).not.toHaveBeenCalled();
-  expect(mockInsertBrief).not.toHaveBeenCalled();
-  expect(mockInsertLead).not.toHaveBeenCalled();
-  expect(mockInsertAudit).not.toHaveBeenCalled();
+  expect(mockRpc).not.toHaveBeenCalled();
 }
 
 describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", () => {
@@ -167,10 +128,10 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
 
     it("accepts a correct credential delivered via the Authorization: Bearer header", async () => {
       process.env.LEADCONNECTOR_WEBHOOK_SECRET = VALID_SECRET;
-      mockSelectBrief.mockResolvedValueOnce({ data: null, error: null });
-      mockInsertBrief.mockResolvedValueOnce({ data: { id: "brief-uuid-2", reference: "GHL-BOOK-5678" }, error: null });
-      mockInsertLead.mockResolvedValueOnce({ data: { id: "lead-uuid-2", status: "new" }, error: null });
-      mockInsertAudit.mockResolvedValueOnce({ error: null });
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-uuid-2", leadId: "lead-uuid-2", reference: "GHL-BOOK-5678", serviceId: null },
+        error: null
+      });
 
       const req = makeRequest({ headers: { authorization: `Bearer ${VALID_SECRET}` } });
       const res = await POST(req);
@@ -239,11 +200,11 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
       process.env.LEADCONNECTOR_WEBHOOK_SECRET = VALID_SECRET;
     });
 
-    it("successfully normalizes an authenticated appointment booking into a project brief and lead", async () => {
-      mockSelectBrief.mockResolvedValueOnce({ data: null, error: null });
-      mockInsertBrief.mockResolvedValueOnce({ data: { id: "brief-uuid-1", reference: "GHL-BOOK-1234" }, error: null });
-      mockInsertLead.mockResolvedValueOnce({ data: { id: "lead-uuid-1", status: "new" }, error: null });
-      mockInsertAudit.mockResolvedValueOnce({ error: null });
+    it("successfully ingests an authenticated appointment booking via the atomic RPC", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-uuid-1", leadId: "lead-uuid-1", reference: "GHL-BOOK-1234", serviceId: null },
+        error: null
+      });
 
       const req = makeRequest({ headers: { "x-leadconnector-key": VALID_SECRET } });
       const res = await POST(req);
@@ -253,12 +214,35 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
       expect(data.source).toBe("leadconnector_booking");
       expect(data.leadId).toBe("lead-uuid-1");
       expect(data.reference).toBe("GHL-BOOK-1234");
-      expect(mockInsertAudit).toHaveBeenCalled();
+
+      expect(mockRpc).toHaveBeenCalledTimes(1);
+      const [fn, args] = mockRpc.mock.calls[0];
+      expect(fn).toBe("ingest_leadconnector_event");
+      // Event identity is keyed on the appointment id, not email, and is never defaulted
+      // to a fabricated service classification.
+      expect(args.p_provider_event_id).toContain("appt-999");
+      expect(args.p_service_id).toBeNull();
     });
 
-    it("safely deduplicates a replayed event with identical email within 1 hour, without creating a duplicate lead", async () => {
-      mockSelectBrief.mockResolvedValueOnce({
-        data: { id: "existing-brief-id", reference: "GHL-BOOK-PREV" },
+    it("does not guess a canonical service id when the provider sends none", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-uuid-3", leadId: "lead-uuid-3", reference: "GHL-FORM-0001", serviceId: null },
+        error: null
+      });
+
+      const req = makeRequest({
+        body: JSON.stringify({ type: "FormSubmission", name: "Jane Doe", email: "jane@example.com", form: { id: "form-42" } }),
+        headers: { "x-leadconnector-key": VALID_SECRET }
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(201);
+      const [, args] = mockRpc.mock.calls[0];
+      expect(args.p_service_id).toBeNull();
+    });
+
+    it("safely handles a replayed event via RPC-reported duplicate, without a second privileged write", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: true, projectBriefId: "existing-brief-id", leadId: "existing-lead-id", reference: "GHL-BOOK-PREV" },
         error: null
       });
 
@@ -267,7 +251,8 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
           type: "FormSubmission",
           name: "Repeated Lead",
           email: "repeated@example.com",
-          phone: "+1 555-1234"
+          phone: "+1 555-1234",
+          form: { id: "form-replayed" }
         }),
         headers: { "x-leadconnector-key": VALID_SECRET }
       });
@@ -277,11 +262,42 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
       const data = await res.json();
       expect(data.status).toBe("deduplicated");
       expect(data.briefId).toBe("existing-brief-id");
-      expect(mockInsertLead).not.toHaveBeenCalled();
+      expect(mockRpc).toHaveBeenCalledTimes(1);
+    });
+
+    it("keys idempotency on the event identity, not just the contact email, so two distinct appointments from the same person both ingest", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-a", leadId: "lead-a", reference: "GHL-BOOK-0001", serviceId: null },
+        error: null
+      });
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-b", leadId: "lead-b", reference: "GHL-BOOK-0002", serviceId: null },
+        error: null
+      });
+
+      const sameContactDifferentEvent = (appointmentId: string) =>
+        makeRequest({
+          body: JSON.stringify({
+            type: "Appointment",
+            email: "repeated@example.com",
+            appointment: { id: appointmentId }
+          }),
+          headers: { "x-leadconnector-key": VALID_SECRET }
+        });
+
+      const res1 = await POST(sameContactDifferentEvent("appt-A"));
+      const res2 = await POST(sameContactDifferentEvent("appt-B"));
+      expect(res1.status).toBe(201);
+      expect(res2.status).toBe(201);
+      expect(mockRpc).toHaveBeenCalledTimes(2);
+      expect(mockRpc.mock.calls[0][1].p_provider_event_id).not.toBe(mockRpc.mock.calls[1][1].p_provider_event_id);
     });
 
     it("rejects a rate-limited burst of authenticated requests from the same client", async () => {
-      mockSelectBrief.mockResolvedValue({ data: { id: "b", reference: "GHL-X" }, error: null });
+      mockRpc.mockResolvedValue({
+        data: { duplicate: false, projectBriefId: "b", leadId: "l", reference: "GHL-X", serviceId: null },
+        error: null
+      });
 
       let lastStatus = 200;
       for (let i = 0; i < 35; i++) {

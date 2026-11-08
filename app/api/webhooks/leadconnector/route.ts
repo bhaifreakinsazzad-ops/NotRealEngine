@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     status: "active",
     adapter: "ENGINE//OS LeadConnector Inbound Ingestion Webhook",
-    version: "V14.0",
+    version: "V16.0",
     supportedEvents: ["Appointment", "FormSubmission", "ContactCreate", "InboundMessage"],
     configurationInstructions: {
       webhookUrl: `${request.nextUrl.origin}/api/webhooks/leadconnector`,
@@ -186,11 +186,26 @@ export async function POST(request: NextRequest) {
       body.company_name ||
       (contactName ? `${contactName}'s Team` : "Direct Client");
 
-    // 7. Canonical Service Resolution
-    // Default to Single Page Website (SVC-01-SPW) or Business Website (SVC-03-BWD)
-    const serviceId = body.service_id || "SVC-01-SPW";
+    // 7. Event Identity for Idempotency
+    // Prefer a provider-supplied identifier for the specific sub-event (appointment, form
+    // submission, or generic event/contact id). Only fall back to a random id -- which means
+    // "never deduplicate this" -- when the provider sent nothing stable to key on; that is
+    // strictly safer than merging it with an unrelated enquiry.
+    const providerEventSeed =
+      body.appointment?.id || body.form?.id || body.form?.formId || body.id || body.contact_id || null;
+    const providerEventId = providerEventSeed
+      ? `${eventType}:${providerEventSeed}`
+      : `${eventType}:${crypto.randomUUID()}`;
+    const payloadHash = crypto.createHash("sha256").update(rawBody).digest("hex");
 
-    // 8. Generate Traceable Provider Reference
+    // 8. Canonical Service Resolution
+    // Only use a canonical service id if the provider explicitly sent one; the RPC itself
+    // re-validates it against the active catalog and discards anything unrecognized rather
+    // than guessing. An unclassified enquiry is preserved as such for staff qualification --
+    // never silently defaulted to Single Page Website.
+    const requestedServiceId = typeof body.service_id === "string" ? body.service_id : null;
+
+    // 9. Generate Traceable Provider Reference
     const eventCode = normalizedSource === "leadconnector_booking"
       ? "BOOK"
       : normalizedSource === "leadconnector_onboarding"
@@ -201,106 +216,62 @@ export async function POST(request: NextRequest) {
     const randomHex = crypto.randomBytes(3).toString("hex").toUpperCase();
     const reference = `GHL-${eventCode}-${randomHex}`;
 
-    // 9. Store in PostgreSQL via Supabase Service Role Client
+    // 10. Atomic, Idempotent Ingestion via Supabase RPC
+    // A single SECURITY DEFINER transaction: idempotency check, project_brief insert, lead
+    // insert, and audit log all succeed together or none of them do -- no orphaned briefs.
     const supabase = getServiceRoleClient();
-
-    // Check for recent duplicate (within 1 hour) with same email and source
-    if (contactEmail) {
-      const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
-      const { data: existingBrief } = await supabase
-        .from("project_briefs")
-        .select("id, reference")
-        .eq("contact_email", contactEmail)
-        .gte("created_at", oneHourAgo)
-        .limit(1)
-        .maybeSingle();
-
-      if (existingBrief) {
-        return NextResponse.json({
-          ok: true,
-          status: "deduplicated",
-          message: "Existing recent enquiry recognized; deduplicated to prevent duplicate lead spam.",
-          reference: existingBrief.reference,
-          briefId: existingBrief.id
-        });
-      }
-    }
-
-    // Create Project Brief
-    const { data: brief, error: briefErr } = await supabase
-      .from("project_briefs")
-      .insert({
-        reference,
-        service_id: serviceId,
-        contact_name: contactName,
-        contact_email: contactEmail,
-        contact_phone: contactPhone,
-        organization_name: orgName,
-        status: "submitted",
-        payload: {
-          rawEvent: eventType,
-          appointment: body.appointment,
-          form: body.form,
-          notes: body.notes || body.message,
-          customData: body.customData,
-          ingestedVia: "leadconnector_webhook_v14"
-        },
-        attribution: {
-          source: normalizedSource,
-          provider: "leadconnector",
-          providerReference: body.id || body.contact_id || body.appointment?.id || body.form?.id,
-          utm_source: body.utm_source,
-          utm_medium: body.utm_medium,
-          utm_campaign: body.utm_campaign,
-          utm_content: body.utm_content,
-          utm_term: body.utm_term
-        }
-      })
-      .select("id, reference")
-      .single();
-
-    if (briefErr || !brief) {
-      console.error("[LeadConnector Webhook] Failed to create project brief:", briefErr?.code, briefErr?.message);
-      return NextResponse.json({ error: "database_error" }, { status: 500 });
-    }
-
-    // Create Lead Record
-    const { data: lead, error: leadErr } = await supabase
-      .from("leads")
-      .insert({
-        project_brief_id: brief.id,
-        status: "new"
-      })
-      .select("id, status")
-      .single();
-
-    if (leadErr || !lead) {
-      console.error("[LeadConnector Webhook] Failed to create lead:", leadErr?.code, leadErr?.message);
-      return NextResponse.json({ error: "database_error" }, { status: 500 });
-    }
-
-    // Record Audit Log Event
-    await supabase.from("audit_logs").insert({
-      action: "lead.ingested_from_leadconnector",
-      entity_type: "lead",
-      entity_id: lead.id,
-      after_data: {
-        leadId: lead.id,
-        briefId: brief.id,
-        reference: brief.reference,
+    const { data: result, error: rpcErr } = await supabase.rpc("ingest_leadconnector_event", {
+      p_provider_event_id: providerEventId,
+      p_payload_hash: payloadHash,
+      p_reference: reference,
+      p_service_id: requestedServiceId,
+      p_contact_name: contactName,
+      p_contact_email: contactEmail || null,
+      p_contact_phone: contactPhone || null,
+      p_organization_name: orgName,
+      p_payload: {
+        rawEvent: eventType,
+        appointment: body.appointment,
+        form: body.form,
+        notes: body.notes || body.message,
+        customData: body.customData,
+        ingestedVia: "leadconnector_webhook_v16"
+      },
+      p_attribution: {
         source: normalizedSource,
-        contactEmail,
-        contactName,
-        provider: "leadconnector"
+        provider: "leadconnector",
+        providerReference: providerEventSeed,
+        utm_source: body.utm_source,
+        utm_medium: body.utm_medium,
+        utm_campaign: body.utm_campaign,
+        utm_content: body.utm_content,
+        utm_term: body.utm_term
       }
     });
+
+    if (rpcErr || !result) {
+      console.error("[LeadConnector Webhook] Ingestion RPC failed:", rpcErr?.code, rpcErr?.message);
+      return NextResponse.json({ error: "database_error" }, { status: 500 });
+    }
+
+    if (result.duplicate) {
+      return NextResponse.json({
+        ok: true,
+        status: "deduplicated",
+        message: "This event was already ingested; replay recognized and safely ignored.",
+        reference: result.reference,
+        briefId: result.projectBriefId,
+        leadId: result.leadId
+      });
+    }
 
     return NextResponse.json(
       {
         ok: true,
-        leadId: lead.id,
-        briefId: brief.id,
-        reference: brief.reference,
+        leadId: result.leadId,
+        briefId: result.projectBriefId,
+        reference: result.reference,
+        serviceId: result.serviceId,
         source: normalizedSource,
         status: "new"
       },
