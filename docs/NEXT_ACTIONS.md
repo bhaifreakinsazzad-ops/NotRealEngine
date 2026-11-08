@@ -2,11 +2,13 @@
 
 Only actions that genuinely require founder authority or external provider credentials remain:
 
-## 1. Apply Migration `0006` in Supabase SQL Editor (Immediate)
-Open the **Supabase Dashboard SQL Editor** for project `yamwmfgqqjwlfcjjkwzl` and execute:
+## 1. Apply Migrations `0005`–`0007` in Supabase SQL Editor (Immediate)
+Open the **Supabase Dashboard SQL Editor** for project `yamwmfgqqjwlfcjjkwzl` and verify, in order, which of these have actually been executed against that database (this repo cannot query it directly), then run whichever are still pending, each as its own statement, in order:
+- [`supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql`](../supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql)
 - [`supabase/migrations/202611080006_v13_terms_environment_and_founder_governance.sql`](../supabase/migrations/202611080006_v13_terms_environment_and_founder_governance.sql)
+- [`supabase/migrations/202611080007_leadconnector_ingestion_integrity.sql`](../supabase/migrations/202611080007_leadconnector_ingestion_integrity.sql) — makes `project_briefs.service_id` nullable and adds the atomic LeadConnector ingestion RPC; apply only after `0001`.
 
-*(If Migration 0005 has not been applied yet, execute `supabase/bootstrap.sql` which contains all definitions up to `0006`).*
+**Correction:** `supabase/bootstrap.sql`'s own header states it is a composition of migrations `0001`–`0004` only — it does **not** include `0005`, `0006`, or `0007`. Do not rely on it for a database that needs those; apply the versioned migration files individually instead. (A prior version of this document incorrectly claimed bootstrap.sql covered up to `0006`.)
 
 ## 2. Configure LeadConnector Webhook Secret on Vercel
 1. Generate a secure 32-byte secret.
