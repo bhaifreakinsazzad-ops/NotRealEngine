@@ -1,14 +1,15 @@
 # ENGINE//OS — Agent Handoff & Continuity Record
-Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Handoff)
+Updated: 2026-11-08 by Gemini Coding Agent (Directive V8.0 Handoff)
 
 ## 1. Executive Summary & Takeover Context
 - **Product:** ENGINE//OS (NOTREAL ENGINE, LLC)
-- **Active Lead Developer Agent:** Gemini Coding Agent (Autonomous Engineering Takeover)
+- **Active Lead Developer Agent:** Gemini Coding Agent
 - **Preceding Developer:** OpenAI Codex (Historical Baseline Commit: `287ebd9`)
-- **Current Git HEAD Commit:** `85e1dc8`
+- **Git HEAD Commit:** `9fafc13` (Preceding hardening commit)
 - **Current Working Branch:** `master`
-- **Repository Location:** `E:\Agentic Work Station\Web Applications\NotRealEngine`
-- **Release Decision:** DEVELOPMENT VERIFIED — STAGING BLOCKED (Pending External Credentials)
+- **Remote Origin URL:** `https://github.com/bhaifreakinsazzad-ops/NotRealEngine.git` (Fetched; `origin/main` has initial commit)
+- **Target Supabase Staging URL:** `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (Reachable, HTTP 401 PostgREST live)
+- **Release Decision:** DEVELOPMENT VERIFIED — STAGING BLOCKED (Pending Supabase Staging Keys)
 
 ---
 
@@ -18,14 +19,18 @@ Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Handoff)
 - **Styling:** Tailwind CSS 4.3.5 with Obsidian / Metallic / Electric Cyan theme
 - **Database & Identity:** Supabase SSR (`@supabase/ssr` 0.12.7, `@supabase/supabase-js` 2.119.0)
   - PostgreSQL 15+ engine with 24 RLS-governed tables
+  - Migrations:
+    - `202611080001_engine_os_foundation.sql` (Tables, RLS, RPCs, Storage bucket)
+    - `202611080002_seed_canonical_services.sql` (10 categories, 12 services)
+    - `202611080003_security_hardening.sql` (Authenticated brief submission, storage delete/update policies)
   - Trigger-enforced state transitions (`quote_state`, `order_state`, `project_state`)
-  - Atomic database RPCs (`submit_project_brief`, `decide_quote`)
-  - Row locking `SELECT ... FOR UPDATE` for quote acceptance
+  - Atomic database RPCs (`submit_project_brief`, `decide_quote` with `FOR UPDATE` row lock)
 - **Test Metrics:**
-  - **Unit Tests:** 46 tests across 10 test files (100% passing)
+  - **Unit Tests:** 50 tests across 10 test files (100% passing)
   - **E2E Playwright Tests:** 22 tests across Desktop Chromium and Mobile Pixel 7 (100% passing)
-  - **Production Build:** 35 static, SSG, dynamic, and API routes cleanly compiled
-  - **Security Audit:** 0 production vulnerabilities; 10 targeted tenant isolation & path traversal unit tests passing
+  - **Production Build:** 36 static, SSG, dynamic, and API routes cleanly compiled
+  - **Staging Smoke Suite:** `npm run verify:staging` active (`scripts/verify-staging.mjs`, output: `docs/staging-report.json`)
+  - **Security Audit:** 0 production vulnerabilities; 13 targeted tenant isolation & signature unit tests passing
 
 ---
 
@@ -38,9 +43,9 @@ Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Handoff)
 | Client Workspace | `app/dashboard/`, `app/dashboard/projects/` | Milestone progress bar, requirement desk, deliverable sign-offs, revision limits. |
 | Secure File Storage | `components/project-file-uploader.tsx`, `app/dashboard/actions.ts` | 50MB max, MIME whitelist, storage path strictly `${projectId}/<file>`, traversal sequences rejected. |
 | Admin Operations | `app/admin/` | Real-time operational queues: leads, quotes, orders, projects, pricing, support. |
-| Payment Gateway | `lib/integrations/payments/`, `app/api/webhooks/payment/` | Constant-time HMAC-SHA256, Stripe tolerance check, replay defense, minor unit matching. |
-| Automation Worker | `lib/integrations/outbox-worker.ts`, `app/api/cron/outbox/` | Transactional outbox, exponential backoff, bearer token authenticated cron endpoint. |
-| Pre-Reg Drafts | `app/api/drafts/` | Opaque SHA-256 token persistence and account claiming workflow. |
+| Payment Gateway | `lib/integrations/payments/`, `app/api/webhooks/payment/` | Constant-time HMAC-SHA256, Stripe tolerance check, SSLCommerz server-to-server Validation API. |
+| Automation Worker | `lib/integrations/outbox-worker.ts`, `app/api/cron/outbox/` | Transactional outbox with atomic Compare-And-Swap (CAS) concurrency lock; bearer-token authenticated cron endpoint. |
+| Staging Smoke Test | `scripts/verify-staging.mjs` | Automated smoke testing suite for live staging Supabase instance (`npm run verify:staging`). |
 
 ---
 
@@ -53,18 +58,22 @@ Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Handoff)
 - `docs/RELEASE_READINESS.md` — Up-to-date release readiness evaluation.
 - `docs/IMPLEMENTATION_STATUS.md` — Truthful matrix of all 23 application areas.
 - `docs/NEXT_ACTIONS.md` — Prioritized engineering backlog.
+- `docs/staging-report.json` — Machine-readable staging smoke test output.
 
 ---
 
 ## 5. Commands to Run Verification
 ```bash
+# Staging Smoke Verification (Connects to https://yamwmfgqqjwlfcjjkwzl.supabase.co)
+npm.cmd run verify:staging
+
 # Strict Typecheck
 npm.cmd run typecheck
 
 # ESLint
 npm.cmd run lint
 
-# Vitest Unit & Domain Test Suite (46 tests)
+# Vitest Unit & Domain Test Suite (50 tests)
 npm.cmd test
 
 # Playwright E2E Test Suite (22 tests on Desktop Chromium & Mobile)

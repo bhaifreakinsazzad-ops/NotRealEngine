@@ -1,0 +1,80 @@
+{
+  "summary": {
+    "passed": 1,
+    "failed": 0,
+    "blocked": 9,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "domain": "Network",
+      "testName": "Supabase Cloud Endpoint Reachable",
+      "status": "PASS",
+      "details": "HTTP 401",
+      "timestamp": "2026-11-08T12:56:50.775Z"
+    },
+    {
+      "domain": "Credentials",
+      "testName": "Supabase API Key Provided",
+      "status": "BLOCKED",
+      "details": "Neither anon key nor service role key provided in environment.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Database",
+      "testName": "Schema & Tables Verification",
+      "status": "BLOCKED",
+      "details": "Requires configured Supabase credentials.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Database",
+      "testName": "Canonical 12 Services Seed",
+      "status": "BLOCKED",
+      "details": "Requires database access.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Database",
+      "testName": "RPC decide_quote & submit_brief",
+      "status": "BLOCKED",
+      "details": "Requires database access.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Auth",
+      "testName": "Customer & Staff Sign In",
+      "status": "BLOCKED",
+      "details": "Requires GoTrue credentials.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Tenant Security",
+      "testName": "Two-Tenant Isolation (Customer A vs B)",
+      "status": "BLOCKED",
+      "details": "Requires database access.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Lead Intake",
+      "testName": "Brief Submission -> Database Persistence",
+      "status": "BLOCKED",
+      "details": "Requires database access.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Commerce",
+      "testName": "Quotation -> Acceptance -> Order",
+      "status": "BLOCKED",
+      "details": "Requires database access.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    },
+    {
+      "domain": "Storage",
+      "testName": "Private project-files Bucket Isolation",
+      "status": "BLOCKED",
+      "details": "Requires Supabase Storage access.",
+      "timestamp": "2026-11-08T12:56:50.777Z"
+    }
+  ]
+}

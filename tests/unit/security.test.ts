@@ -4,6 +4,8 @@ import { registerUploadedFileAction } from "@/app/dashboard/actions";
 import {
   verifyHmacSha256,
   verifyStripeSignature,
+  verifySslCommerzIpn,
+  validateSslCommerzServerApi,
   parseAndVerifyPaymentWebhook
 } from "@/lib/integrations/payments/providers";
 
@@ -186,5 +188,49 @@ describe("Cryptographic Webhook Signature Verification", () => {
     const result = parseAndVerifyPaymentWebhook(rawPayload, headers, { webhookSecret: secret });
     expect(result.valid).toBe(false);
     expect(result.error).toMatch(/No recognized payment signature header/i);
+  });
+
+  it("verifies authentic SSLCommerz IPN hash parameters", () => {
+    const storePass = "test_store_pass";
+    const passHash = crypto.createHash("md5").update(storePass).digest("hex");
+    const tranId = "TRX-12345";
+    const valId = "VAL-67890";
+    const verifyKey = "tran_id,val_id";
+    const hashString = `tran_id=${tranId}&val_id=${valId}&store_passwd=${passHash}`;
+    const verifySign = crypto.createHash("md5").update(hashString).digest("hex");
+
+    const params = {
+      tran_id: tranId,
+      val_id: valId,
+      verify_key: verifyKey,
+      verify_sign: verifySign
+    };
+
+    const res = verifySslCommerzIpn(params, storePass);
+    expect(res.valid).toBe(true);
+  });
+
+  it("rejects tampered SSLCommerz IPN parameters", () => {
+    const storePass = "test_store_pass";
+    const params = {
+      tran_id: "FORGED_TRX",
+      val_id: "VAL-67890",
+      verify_key: "tran_id,val_id",
+      verify_sign: "invalid_hash_signature"
+    };
+
+    const res = verifySslCommerzIpn(params, storePass);
+    expect(res.valid).toBe(false);
+  });
+
+  it("handles SSLCommerz server-to-server API validation rejection safely", async () => {
+    // Missing required parameters fails closed without network call
+    const res = await validateSslCommerzServerApi({
+      valId: "",
+      storeId: "store1",
+      storePassword: "pass1"
+    });
+    expect(res.valid).toBe(false);
+    expect(res.error).toMatch(/Missing val_id/i);
   });
 });

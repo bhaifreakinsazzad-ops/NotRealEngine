@@ -99,6 +99,45 @@ export function verifySslCommerzIpn(
 }
 
 /**
+ * Validates SSLCommerz transaction directly with SSLCommerz server-to-server Validation API.
+ * This is the mandatory second-factor validation to guarantee payment authenticity.
+ */
+export async function validateSslCommerzServerApi(options: {
+  valId: string;
+  storeId: string;
+  storePassword: string;
+  isSandbox?: boolean;
+}): Promise<{ valid: boolean; data?: Record<string, unknown>; error?: string }> {
+  const { valId, storeId, storePassword, isSandbox = true } = options;
+
+  if (!valId || !storeId || !storePassword) {
+    return { valid: false, error: "Missing val_id, store_id, or store_passwd for SSLCommerz validation" };
+  }
+
+  const host = isSandbox ? "sandbox.sslcommerz.com" : "securepay.sslcommerz.com";
+  const url = `https://${host}/validator/api/validationserverAPI.php?val_id=${encodeURIComponent(valId)}&store_id=${encodeURIComponent(storeId)}&store_passwd=${encodeURIComponent(storePassword)}&format=json`;
+
+  try {
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) {
+      return { valid: false, error: `SSLCommerz validation server returned HTTP ${res.status}` };
+    }
+
+    const data = (await res.json()) as Record<string, unknown>;
+    const status = String(data.status || "").toUpperCase();
+
+    if (status === "VALID" || status === "VALIDATED") {
+      return { valid: true, data };
+    }
+
+    return { valid: false, error: `SSLCommerz transaction status is not valid: ${status}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "SSLCommerz validation request failed";
+    return { valid: false, error: msg };
+  }
+}
+
+/**
  * Universal webhook parser and verifier.
  * Returns verified payment event only if the cryptographic signature is verified.
  */

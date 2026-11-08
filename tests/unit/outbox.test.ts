@@ -42,9 +42,13 @@ describe("Outbox Worker", () => {
       created_at: new Date().toISOString()
     };
 
-    const updateMock = vi.fn().mockReturnValue({
-      eq: vi.fn().mockResolvedValue({ error: null })
-    });
+    const chain: Record<string, unknown> = {};
+    chain.eq = vi.fn().mockReturnValue(chain);
+    chain.select = vi.fn().mockReturnValue(chain);
+    chain.maybeSingle = vi.fn().mockResolvedValue({ data: { id: "ev-2" }, error: null });
+    chain.then = (resolve: (val: unknown) => unknown) => resolve({ error: null });
+
+    const updateMock = vi.fn().mockReturnValue(chain);
 
     const mockSupabase = {
       from: vi.fn().mockReturnValue({
@@ -91,9 +95,13 @@ describe("Outbox Worker", () => {
       created_at: new Date().toISOString()
     };
 
-    const updateMock = vi.fn().mockReturnValue({
-      eq: vi.fn().mockResolvedValue({ error: null })
-    });
+    const chain: Record<string, unknown> = {};
+    chain.eq = vi.fn().mockReturnValue(chain);
+    chain.select = vi.fn().mockReturnValue(chain);
+    chain.maybeSingle = vi.fn().mockResolvedValue({ data: { id: "ev-2" }, error: null });
+    chain.then = (resolve: (val: unknown) => unknown) => resolve({ error: null });
+
+    const updateMock = vi.fn().mockReturnValue(chain);
 
     const mockSupabase = {
       from: vi.fn().mockReturnValue({
@@ -115,6 +123,53 @@ describe("Outbox Worker", () => {
     const result = await processOutboxBatch(mockSupabase, { externalDeliveryEnabled: true });
 
     expect(result.processed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.disabled).toBe(0);
+  });
+
+  it("skips event when another concurrent worker acquired CAS lock", async () => {
+    const mockEvent: OutboxEventRecord = {
+      id: "ev-3",
+      aggregate_type: "quotes",
+      aggregate_id: "q-789",
+      event_type: "Quote Accepted",
+      payload: {},
+      state: "pending",
+      attempts: 0,
+      available_at: new Date(Date.now() - 1000).toISOString(),
+      processed_at: null,
+      idempotency_key: "idemp-3",
+      created_at: new Date().toISOString()
+    };
+
+    const chain: Record<string, unknown> = {};
+    chain.eq = vi.fn().mockReturnValue(chain);
+    chain.select = vi.fn().mockReturnValue(chain);
+    // Simulating race condition: another worker updated the row first, so CAS returns null
+    chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    chain.then = (resolve: (val: unknown) => unknown) => resolve({ error: null });
+
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            lte: vi.fn().mockReturnValue({
+              lt: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({ data: [mockEvent], error: null })
+                })
+              })
+            })
+          })
+        }),
+        update: vi.fn().mockReturnValue(chain)
+      })
+    } as unknown as SupabaseClient;
+
+    const result = await processOutboxBatch(mockSupabase, { externalDeliveryEnabled: true });
+
+    // Skipped safely, not marked processed, failed, or disabled
+    expect(result.processed).toBe(0);
     expect(result.failed).toBe(0);
     expect(result.disabled).toBe(0);
   });

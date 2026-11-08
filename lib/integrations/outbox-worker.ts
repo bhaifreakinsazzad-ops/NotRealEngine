@@ -79,14 +79,22 @@ export async function processOutboxBatch(
       continue;
     }
 
-    // Lock event in processing state
-    await supabase
+    // Atomic Compare-And-Swap (CAS) concurrency lock: only transition if still 'pending'
+    const { data: locked, error: lockErr } = await supabase
       .from("outbox_events")
       .update({
         state: "processing",
         attempts: event.attempts + 1
       })
-      .eq("id", event.id);
+      .eq("id", event.id)
+      .eq("state", "pending")
+      .select("id")
+      .maybeSingle();
+
+    if (lockErr || !locked) {
+      // Another worker acquired the event concurrently; skip to prevent duplicate delivery
+      continue;
+    }
 
     try {
       const handler = handlers[event.event_type];

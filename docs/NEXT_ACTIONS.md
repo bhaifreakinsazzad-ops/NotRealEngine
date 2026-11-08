@@ -1,5 +1,5 @@
 # ENGINE//OS — Next Implementation Actions Queue
-Updated: 2026-11-08 by Gemini Coding Agent (Directive V6.0 Review)
+Updated: 2026-11-08 by Gemini Coding Agent (Directive V8.0 Review)
 
 This document tracks prioritized, actionable engineering batches.
 
@@ -7,43 +7,31 @@ This document tracks prioritized, actionable engineering batches.
 
 ### Immediate Next Implementation Batches
 
-#### [TASK-OPS-01] Staging Database Deployment & Multi-Tenant Audit
+#### [TASK-OPS-01] Staging Database Key Configuration & Migration Run
 - **Priority:** Critical (P0)
-- **Status:** BLOCKED pending credentials
-- **Dependencies:** Staging Supabase project credentials (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
+- **Status:** BLOCKED pending Supabase anon/service keys for `https://yamwmfgqqjwlfcjjkwzl.supabase.co`
+- **Dependencies:** Staging Supabase API key (`NEXT_PUBLIC_SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY`)
 - **Required Work:**
-  1. Apply `202611080001_engine_os_foundation.sql` and `202611080002_seed_canonical_services.sql` to staging database.
-  2. Verify all 24 public tables, RLS policies, and RPCs (`decide_quote`, `submit_project_brief`).
-  3. Create isolated synthetic test identities (Staff, Customer A, Customer B).
-  4. Execute two-tenant isolation verification (Journey 1 & Journey 2 from `docs/STAGING_VERIFICATION.md`).
+  1. Add `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` to `.env.local` or host secrets.
+  2. Apply migrations `202611080001_engine_os_foundation.sql`, `202611080002_seed_canonical_services.sql`, and `202611080003_security_hardening.sql` to `yamwmfgqqjwlfcjjkwzl`.
+  3. Execute `npm run verify:staging` to verify that all 10 staging checks transition from BLOCKED to PASS.
+  4. Verify two-tenant isolation with synthetic accounts.
 
 ---
 
-#### [TASK-LEGAL-01] Legal Copy Integration
+#### [TASK-GIT-01] Remote GitHub Synchronization
+- **Priority:** High (P1)
+- **Status:** READY for push by developer/founder
+- **Dependencies:** GitHub credentials for `bhaifreakinsazzad-ops/NotRealEngine`
+- **Required Work:**
+  1. Run `git push origin master` (or merge `master` into `main`) from an authenticated terminal or GUI client to update `github.com/bhaifreakinsazzad-ops/NotRealEngine`.
+
+---
+
+#### [TASK-LEGAL-01] Legal Copy Finalization
 - **Priority:** High (P1)
 - **Status:** BLOCKED pending founder/counsel text
 - **Dependencies:** Approved copy for Privacy Policy, Terms of Service, and Refund Policy
 - **Required Work:**
   1. Replace draft placeholders in `app/privacy/page.tsx`, `app/terms/page.tsx`, and `app/refund-policy/page.tsx`.
   2. Remove `DRAFT — NOT APPROVED` warning banners upon written authorization.
-
----
-
-#### [TASK-PAY-01] Payment Gateway Sandbox Test
-- **Priority:** High (P1)
-- **Status:** GATED pending merchant sandbox credentials
-- **Dependencies:** SSLCommerz / Stripe test API keys
-- **Required Work:**
-  1. Configure sandbox secrets in environment.
-  2. Execute end-to-end sandbox transaction against `/api/webhooks/payment`.
-  3. Verify order transition to `confirmed` and transaction audit entry.
-
----
-
-#### [TASK-MAIL-01] Transactional Outbox Scheduling
-- **Priority:** Medium (P2)
-- **Status:** Ready for scheduling
-- **Dependencies:** Cron schedule runner (e.g. Vercel Cron or GitHub Actions)
-- **Required Work:**
-  1. Configure periodic POST request to `/api/cron/outbox` with `Authorization: Bearer <CRON_SECRET>`.
-  2. When email provider credentials are provided, toggle `NOTIFICATIONS_ENABLED=true`.
