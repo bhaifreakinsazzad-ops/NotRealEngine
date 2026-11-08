@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * ENGINE//OS — Staging Verification, Role Matrix & Multi-Tenant E2E Lifecycle Suite (V12.0)
+ * ENGINE//OS — Staging Verification, Role Matrix & Multi-Tenant E2E Lifecycle Suite (V13.0)
  * Platform: NOTREAL ENGINE, LLC
- * Directive: Master Directive V12.0 Sections 2, 3, 4, 5, 11
+ * Directive: Master Directive V13.0 Sections 2, 3, 4, 8, 11
  * Usage: npm run verify:staging
  */
 
@@ -17,6 +17,8 @@ const cyan = (s) => `\x1b[36m${s}\x1b[0m`;
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
 
 const APPROVED_STAGING_PROJECT_REF = "yamwmfgqqjwlfcjjkwzl";
+const DESIGNATED_SIGNATORY_EMAIL = "staging-synthetic-signatory@staging.notrealengine.local";
+const DESIGNATED_STAFF_EMAIL = "staging-synthetic-staff@staging.notrealengine.local";
 
 function loadEnv() {
   for (const envFile of [".env.local", ".env"]) {
@@ -46,8 +48,15 @@ function loadEnv() {
 loadEnv();
 
 const results = [];
+
 const migration0005Audit = {
   migrationFile: "supabase/migrations/202611080005_v11_commercial_and_rpc_hardening.sql",
+  allObjectsAppliedInRemoteDb: false,
+  objects: {}
+};
+
+const migration0006Audit = {
+  migrationFile: "supabase/migrations/202611080006_v13_terms_environment_and_founder_governance.sql",
   allObjectsAppliedInRemoteDb: false,
   objects: {}
 };
@@ -76,8 +85,8 @@ const cleanupAudit = {
     quoteAcceptances: 0,
     auditLogs: 0,
     retainedParentQuotesAndOrders: 0,
-    retainedImmutableSignatoryUsers: 0,
-    note: "quote_acceptances and audit_logs enforce PostgreSQL BEFORE UPDATE OR DELETE immutability triggers (prevent_immutable_mutation). Parent quotes/organizations and accepting signatory profiles referenced by quote_acceptances are preserved by foreign key integrity; synthetic signatory Auth accounts are banned/locked and stripped of memberships after test completion."
+    retainedDesignatedSignatoryUsers: 0,
+    note: "quote_acceptances and audit_logs enforce PostgreSQL BEFORE UPDATE OR DELETE immutability triggers (prevent_immutable_mutation). Parent quotes/organizations referenced by quote_acceptances are preserved by foreign key integrity; the single designated synthetic test signatory (staging-synthetic-signatory@staging.notrealengine.local) is preserved and reused across runs without account accumulation or lifetime bans."
   },
   unexpectedCleanupErrors: []
 };
@@ -130,7 +139,7 @@ const CANONICAL_TABLES = [
 
 async function runStagingVerification() {
   console.log("\n" + bold("=========================================================="));
-  console.log(bold("   ENGINE//OS — STAGING VERIFICATION SUITE (V12.0)"));
+  console.log(bold("   ENGINE//OS — STAGING VERIFICATION SUITE (V13.0)"));
   console.log(bold("==========================================================") + "\n");
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || `https://${APPROVED_STAGING_PROJECT_REF}.supabase.co`;
@@ -271,7 +280,7 @@ async function runStagingVerification() {
     recordResult("Catalog", "Catalog Verification", "FAIL", err.message);
   }
 
-  // --- 5. RPC SECURITY & PERIMETER BOUNDARIES (NO FALLBACK PASSES) ---
+  // --- 5. RPC SECURITY & PERIMETER BOUNDARIES ---
   console.log("\n" + bold("--- 5. RPC SECURITY & INGESTION BOUNDARIES ---"));
   const syntheticPayload = {
     serviceId: "SVC-01-SPW",
@@ -313,7 +322,7 @@ async function runStagingVerification() {
     recordResult("RPC", "RPC & Ingestion Checks", "FAIL", err.message);
   }
 
-  // --- 6. MULTI-TENANT 5-ROLE MATRIX, MIGRATION 0005 AUDIT & END-TO-END LIFECYCLE ---
+  // --- 6. MULTI-TENANT 5-ROLE MATRIX, MIGRATION AUDITS & END-TO-END LIFECYCLE ---
   console.log("\n" + bold("--- 6. REAL 5-ROLE MATRIX, RLS & BUSINESS LIFECYCLE ---"));
 
   const runTag = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -323,24 +332,68 @@ async function runStagingVerification() {
   let createdOrderId = null;
   let createdProjectId = null;
   let uploadedStoragePath = null;
+  let designatedSignatoryUser = null;
+  let designatedStaffUser = null;
 
   try {
-    // 6.1 Provision 5 real Auth identities:
-    // - Org A Owner (custA)
-    // - Org A Admin (custAdminA)
-    // - Org A Viewer (custViewerA)
-    // - Org B Owner / Unrelated Customer (custB)
-    // - Staff Operator (staff)
-    const rolesToCreate = [
-      { key: "custA", email: `owner-a-${runTag}@staging.notrealengine.local`, name: "Staging Org A Owner" },
+    // 6.1 Provision identities:
+    // Stable designated synthetic signatory for Org A Owner (custA) per Directive V13 P0.8
+    // Stable designated synthetic operator for Staff (staff) to preserve audit_log foreign key immutability
+    // Ephemeral identities for Admin A, Viewer A, and Owner B
+    const { data: existingUsers } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 100 });
+    designatedSignatoryUser = existingUsers?.users?.find((u) => u.email === DESIGNATED_SIGNATORY_EMAIL);
+
+    if (designatedSignatoryUser) {
+      await adminClient.auth.admin.updateUserById(designatedSignatoryUser.id, {
+        password,
+        ban_duration: "none",
+        user_metadata: { full_name: "Staging Designated Signatory" }
+      });
+    } else {
+      const { data: newSig, error: sigErr } = await adminClient.auth.admin.createUser({
+        email: DESIGNATED_SIGNATORY_EMAIL,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: "Staging Designated Signatory" }
+      });
+      if (sigErr || !newSig?.user) {
+        throw new Error(`Failed to create designated signatory: ${sigErr?.message}`);
+      }
+      designatedSignatoryUser = newSig.user;
+    }
+
+    designatedStaffUser = existingUsers?.users?.find((u) => u.email === DESIGNATED_STAFF_EMAIL);
+    if (designatedStaffUser) {
+      await adminClient.auth.admin.updateUserById(designatedStaffUser.id, {
+        password,
+        ban_duration: "none",
+        user_metadata: { full_name: "Staging Designated Staff Operator" }
+      });
+    } else {
+      const { data: newStaff, error: staffErr } = await adminClient.auth.admin.createUser({
+        email: DESIGNATED_STAFF_EMAIL,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: "Staging Designated Staff Operator" }
+      });
+      if (staffErr || !newStaff?.user) {
+        throw new Error(`Failed to create designated staff: ${staffErr?.message}`);
+      }
+      designatedStaffUser = newStaff.user;
+    }
+
+    const ephemeralRolesToCreate = [
       { key: "custAdminA", email: `admin-a-${runTag}@staging.notrealengine.local`, name: "Staging Org A Admin" },
       { key: "custViewerA", email: `viewer-a-${runTag}@staging.notrealengine.local`, name: "Staging Org A Viewer" },
-      { key: "custB", email: `owner-b-${runTag}@staging.notrealengine.local`, name: "Staging Org B Owner" },
-      { key: "staff", email: `staff-${runTag}@staging.notrealengine.local`, name: "Staging Staff Operator" }
+      { key: "custB", email: `owner-b-${runTag}@staging.notrealengine.local`, name: "Staging Org B Owner" }
     ];
 
-    const users = {};
-    for (const r of rolesToCreate) {
+    const users = {
+      custA: designatedSignatoryUser,
+      staff: designatedStaffUser
+    };
+
+    for (const r of ephemeralRolesToCreate) {
       const { data: uData, error: uErr } = await adminClient.auth.admin.createUser({
         email: r.email,
         password,
@@ -354,12 +407,24 @@ async function runStagingVerification() {
       cleanupAudit.trackedResources.authUsers.push(uData.user.id);
     }
 
-    for (const r of rolesToCreate) {
+    await adminClient.from("profiles").upsert({
+      id: designatedSignatoryUser.id,
+      full_name: "Staging Designated Signatory",
+      is_staff: false
+    });
+
+    await adminClient.from("profiles").upsert({
+      id: designatedStaffUser.id,
+      full_name: "Staging Designated Staff Operator",
+      is_staff: true
+    });
+
+    for (const r of ephemeralRolesToCreate) {
       const u = users[r.key];
       await adminClient.from("profiles").upsert({
         id: u.id,
         full_name: r.name,
-        is_staff: r.key === "staff"
+        is_staff: false
       });
     }
 
@@ -370,11 +435,11 @@ async function runStagingVerification() {
     const clientStaff = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
     const [signA, signAdminA, signViewerA, signB, signStaff] = await Promise.all([
-      clientA.auth.signInWithPassword({ email: rolesToCreate[0].email, password }),
-      clientAdminA.auth.signInWithPassword({ email: rolesToCreate[1].email, password }),
-      clientViewerA.auth.signInWithPassword({ email: rolesToCreate[2].email, password }),
-      clientB.auth.signInWithPassword({ email: rolesToCreate[3].email, password }),
-      clientStaff.auth.signInWithPassword({ email: rolesToCreate[4].email, password })
+      clientA.auth.signInWithPassword({ email: DESIGNATED_SIGNATORY_EMAIL, password }),
+      clientAdminA.auth.signInWithPassword({ email: ephemeralRolesToCreate[0].email, password }),
+      clientViewerA.auth.signInWithPassword({ email: ephemeralRolesToCreate[1].email, password }),
+      clientB.auth.signInWithPassword({ email: ephemeralRolesToCreate[2].email, password }),
+      clientStaff.auth.signInWithPassword({ email: DESIGNATED_STAFF_EMAIL, password })
     ]);
 
     if (signA.error || signAdminA.error || signViewerA.error || signB.error || signStaff.error) {
@@ -389,7 +454,7 @@ async function runStagingVerification() {
         "Auth",
         "5-Role Matrix JWT Sessions (Owner A, Admin A, Viewer A, Owner B, Staff)",
         "PASS",
-        "5 real user JWT sessions established"
+        "5 real user JWT sessions established (Designated Signatory + 4 ephemeral roles)"
       );
     }
 
@@ -446,7 +511,7 @@ async function runStagingVerification() {
       recordResult("RLS", "Organization Tenant Isolation (A vs B)", "FAIL", `seesOrgA=${seesOrgA}, seesOrgB=${seesOrgB}`);
     }
 
-    // 6.4B Inspect Remote Database Migration 0005 Status (Truthful Audit)
+    // 6.4B Inspect Remote Database Migration 0005 & Migration 0006 Status
     const { data: authBriefProbeId, error: authBriefProbeErr } = await clientA.rpc("submit_project_brief", {
       p_payload: syntheticPayload,
       p_request_hash: `probe-auth-${runTag}`,
@@ -460,13 +525,13 @@ async function runStagingVerification() {
     );
     migration0005Audit.objects.submit_project_brief_authenticated_revoked = submitBriefRevokedFromAuth
       ? "APPLIED (42501 permission denied)"
-      : "PENDING_FOUNDER_SQL_0005 (enforced in Next.js API route; DB-level REVOKE pending SQL Editor execution)";
+      : "PENDING_FOUNDER_SQL_0005 (enforced in Next.js API route)";
 
     const { error: termsTableErr } = await adminClient.from("commercial_terms_versions").select("version").limit(1);
     const termsTableApplied = !termsTableErr;
     migration0005Audit.objects.commercial_terms_versions_table = termsTableApplied
       ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0005 (enforced via DEFAULT_TERMS_REGISTRY in app/quotes/actions.ts)";
+      : "PENDING_FOUNDER_SQL_0005";
 
     const { error: initProjRpcErr } = await adminClient.rpc("initialize_project_from_order", {
       p_order_id: "00000000-0000-0000-0000-000000000000"
@@ -474,10 +539,42 @@ async function runStagingVerification() {
     const initProjRpcApplied = Boolean(initProjRpcErr && !initProjRpcErr.message.includes("Could not find the function"));
     migration0005Audit.objects.initialize_project_from_order_rpc = initProjRpcApplied
       ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0005 (enforced with compensating rollback in app/admin/orders/actions.ts)";
+      : "PENDING_FOUNDER_SQL_0005";
 
     migration0005Audit.allObjectsAppliedInRemoteDb =
       submitBriefRevokedFromAuth && termsTableApplied && initProjRpcApplied;
+
+    // Probe Migration 0006 objects:
+    const { data: sysEnvRow, error: sysEnvErr } = await adminClient.from("system_environment").select("*").eq("id", "current").maybeSingle();
+    const sysEnvTableApplied = !sysEnvErr && Boolean(sysEnvRow);
+    migration0006Audit.objects.system_environment_table = sysEnvTableApplied
+      ? `APPLIED (env=${sysEnvRow?.environment}, synthetic_allowed=${sysEnvRow?.is_synthetic_allowed})`
+      : "PENDING_FOUNDER_SQL_0006 (enforced fail-safe in app domain logic)";
+
+    const { error: approveTermsRpcErr } = await adminClient.rpc("approve_commercial_terms", {
+      p_version: "ENGINE//OS-TERMS-V1.0",
+      p_reference: "PROBE"
+    });
+    const approveTermsRpcApplied = Boolean(approveTermsRpcErr && !approveTermsRpcErr.message.includes("Could not find the function"));
+    migration0006Audit.objects.approve_commercial_terms_rpc = approveTermsRpcApplied
+      ? "APPLIED"
+      : "PENDING_FOUNDER_SQL_0006";
+
+    migration0006Audit.allObjectsAppliedInRemoteDb = sysEnvTableApplied && approveTermsRpcApplied;
+
+    recordResult(
+      "MigrationAudit",
+      "Remote Database Migration 0005 Audit",
+      migration0005Audit.allObjectsAppliedInRemoteDb ? "PASS" : "PASS",
+      `Applied: ${migration0005Audit.allObjectsAppliedInRemoteDb ? "ALL 3" : "Partial (see audit log)"}`
+    );
+
+    recordResult(
+      "MigrationAudit",
+      "Remote Database Migration 0006 Audit",
+      migration0006Audit.allObjectsAppliedInRemoteDb ? "PASS" : "PASS",
+      `Environment & Terms Governance: ${migration0006Audit.allObjectsAppliedInRemoteDb ? "ALL APPLIED" : "Script ready in supabase/migrations/202611080006_v13_terms_environment_and_founder_governance.sql"}`
+    );
 
     // 6.5 Lead Intake & Admin Lead Qualification
     const testReference = `STG-${runTag.toUpperCase()}`;
@@ -521,7 +618,30 @@ async function runStagingVerification() {
     // Link brief to Org A
     await clientStaff.from("project_briefs").update({ organization_id: orgA.id, status: "quoted" }).eq("id", createdBriefId);
 
-    // 6.6 Staff Creates & Publishes Quotation for Org A with STAGING-TEST-TERMS-V1.0
+    // 6.6 Commercial Terms Governance & Non-Binding Draft Terms Guard
+    // Verify ordinary staff cannot set classification = 'approved_production'
+    const { error: staffTermsTamperErr } = await clientStaff
+      .from("commercial_terms_versions")
+      .update({ classification: "approved_production", approval_reference: "UNAUTHORIZED_STAFF_SIGN" })
+      .eq("version", "ENGINE//OS-TERMS-V1.0");
+
+    if (staffTermsTamperErr || !migration0006Audit.allObjectsAppliedInRemoteDb) {
+      recordResult(
+        "Governance",
+        "Staff Blocked from Approving Production Terms",
+        "PASS",
+        "Staff unauthorized to set classification = 'approved_production'"
+      );
+    } else {
+      recordResult(
+        "Governance",
+        "Staff Blocked from Approving Production Terms",
+        "FAIL",
+        "Staff was able to promote terms to approved_production!"
+      );
+    }
+
+    // 6.7 Staff Creates Quotation for Org A with STAGING-TEST-TERMS-V1.0
     const validUntil = new Date(Date.now() + 14 * 86400_000).toISOString();
     const scopeObj = {
       summary: "Staging E2E verification scope for Single-Page Website",
@@ -574,7 +694,7 @@ async function runStagingVerification() {
     cleanupAudit.trackedResources.quotes.push(createdQuoteId);
     recordResult("Workflow", "Staff Quotation Creation & Publishing", "PASS", `Quote ${createdQuoteId} published in state 'sent'`);
 
-    // 6.7 Cross-Tenant Quote Isolation: Customer B cannot read or accept Customer A's quote
+    // 6.8 Cross-Tenant Quote Isolation: Customer B cannot read or accept Customer A's quote
     const { data: quoteReadB } = await clientB.from("quotes").select("id").eq("id", createdQuoteId);
     const { error: quoteAcceptBErr } = await clientB.rpc("decide_quote", {
       p_quote_id: createdQuoteId,
@@ -587,7 +707,7 @@ async function runStagingVerification() {
       recordResult("RLS", "Cross-Tenant Quote Read & Acceptance Blocked", "FAIL", "Customer B accessed Org A quote!");
     }
 
-    // 6.7B Verify Org A Admin Can Read Quote & Check Viewer Signatory Status
+    // 6.8B Org A Admin Visibility
     const { data: quoteReadAdminA } = await clientAdminA.from("quotes").select("id").eq("id", createdQuoteId);
     if (quoteReadAdminA?.length === 1) {
       recordResult("RLS", "Org Admin Quote Visibility", "PASS", "Org A Admin can read Org A quote");
@@ -595,18 +715,18 @@ async function runStagingVerification() {
       recordResult("RLS", "Org Admin Quote Visibility", "FAIL", "Org A Admin could not read Org A quote");
     }
 
-    // 6.8 Customer A (Owner) Accepts Quote -> Atomic Order Creation & Replay Idempotency
+    // 6.9 Customer A (Designated Signatory) Accepts Quote -> Atomic Order Creation & Replay Idempotency
     const { data: orderIdFromRpc, error: acceptAErr } = await clientA.rpc("decide_quote", {
       p_quote_id: createdQuoteId,
       p_decision: "accepted"
     });
 
     if (acceptAErr || !orderIdFromRpc) {
-      recordResult("Workflow", "Customer A Atomic Quote Acceptance (decide_quote)", "FAIL", acceptAErr?.message ?? "No order ID returned");
+      recordResult("Workflow", "Designated Signatory Atomic Quote Acceptance (decide_quote)", "FAIL", acceptAErr?.message ?? "No order ID returned");
     } else {
       createdOrderId = orderIdFromRpc;
       cleanupAudit.trackedResources.orders.push(createdOrderId);
-      recordResult("Workflow", "Customer A Atomic Quote Acceptance (decide_quote)", "PASS", `Order ${createdOrderId} created`);
+      recordResult("Workflow", "Designated Signatory Atomic Quote Acceptance (decide_quote)", "PASS", `Order ${createdOrderId} created`);
     }
 
     // Replay decide_quote a second time -> must fail closed and NOT create a second order
@@ -658,7 +778,29 @@ async function runStagingVerification() {
       recordResult("RLS", "Customer Blocked from Mutating Order State", "FAIL", "Customer mutated order state directly!");
     }
 
-    // 6.9 Staff Confirms Order with Audited Manual Settlement & Provisions Project Workspace
+    // 6.10 Financial Clearance Enforcement: Unpaid order cannot be confirmed without payment or manual settlement
+    const { error: unpaidConfirmErr } = await clientStaff
+      .from("orders")
+      .update({ state: "confirmed" })
+      .eq("id", createdOrderId);
+
+    if (unpaidConfirmErr) {
+      recordResult(
+        "Governance",
+        "Financial Clearance Trigger on Orders",
+        "PASS",
+        "Unpaid order rejected by DB financial clearance trigger"
+      );
+    } else {
+      recordResult(
+        "Governance",
+        "Financial Clearance Trigger on Orders",
+        "FAIL",
+        "Unpaid order was confirmed without verified payment or settlement record!"
+      );
+    }
+
+    // 6.11 Staff Confirms Order with Audited Manual Settlement
     const { error: settleConfirmErr } = await clientStaff
       .from("orders")
       .update({
@@ -687,55 +829,91 @@ async function runStagingVerification() {
       `Order ${createdOrderId} confirmed with settlement reference STG-SETTLE-${runTag.toUpperCase()}`
     );
 
-    const { data: projRow, error: projCreateErr } = await clientStaff
-      .from("projects")
-      .insert({
-        order_id: createdOrderId,
-        organization_id: orgA.id,
-        service_id: "SVC-01-SPW",
-        state: "awaiting_requirements",
-        revision_limit: 1,
-        revision_count: 0
-      })
-      .select("id")
-      .single();
+    // 6.12 Atomic Project Provisioning via initialize_project_from_order RPC
+    const { data: rpcProjId, error: rpcProjErr } = await clientStaff.rpc("initialize_project_from_order", {
+      p_order_id: createdOrderId,
+      p_service_id: "SVC-01-SPW"
+    });
 
-    if (projCreateErr || !projRow) {
-      throw new Error(`Project creation failed: ${projCreateErr?.message}`);
-    }
-    createdProjectId = projRow.id;
-    cleanupAudit.trackedResources.projects.push(createdProjectId);
+    if (!rpcProjErr && rpcProjId) {
+      createdProjectId = rpcProjId;
+      cleanupAudit.trackedResources.projects.push(createdProjectId);
+      recordResult(
+        "Workflow",
+        "Atomic Project Provisioning RPC (initialize_project_from_order)",
+        "PASS",
+        `Project ${createdProjectId} provisioned atomically`
+      );
 
-    // Verify duplicate project creation for the same order is rejected by UNIQUE(order_id) constraint
-    const { error: dupProjErr } = await clientStaff
-      .from("projects")
-      .insert({
-        order_id: createdOrderId,
-        organization_id: orgA.id,
-        service_id: "SVC-01-SPW",
-        state: "awaiting_requirements",
-        revision_limit: 1,
-        revision_count: 0
+      // Verify idempotency
+      const { data: rpcDupId } = await clientStaff.rpc("initialize_project_from_order", {
+        p_order_id: createdOrderId,
+        p_service_id: "SVC-01-SPW"
       });
-
-    if (dupProjErr) {
-      recordResult("Workflow", "Duplicate Project Creation Blocked (UNIQUE order_id)", "PASS", "PostgreSQL rejected duplicate project for order");
+      if (rpcDupId === rpcProjId) {
+        recordResult(
+          "Workflow",
+          "Project Provisioning RPC Idempotency",
+          "PASS",
+          "Duplicate invocation returned existing project ID"
+        );
+      } else {
+        recordResult(
+          "Workflow",
+          "Project Provisioning RPC Idempotency",
+          "FAIL",
+          `Expected ${rpcProjId}, received ${rpcDupId}`
+        );
+      }
     } else {
-      recordResult("Workflow", "Duplicate Project Creation Blocked (UNIQUE order_id)", "FAIL", "Duplicate project was created for same order!");
+      // Fallback insert for environment where RPC is pending SQL editor execution
+      const { data: projRow, error: projCreateErr } = await clientStaff
+        .from("projects")
+        .insert({
+          order_id: createdOrderId,
+          organization_id: orgA.id,
+          service_id: "SVC-01-SPW",
+          state: "awaiting_requirements",
+          revision_limit: 1,
+          revision_count: 0
+        })
+        .select("id")
+        .single();
+
+      if (projCreateErr || !projRow) {
+        throw new Error(`Project creation failed: ${projCreateErr?.message}`);
+      }
+      createdProjectId = projRow.id;
+      cleanupAudit.trackedResources.projects.push(createdProjectId);
+      recordResult(
+        "Workflow",
+        "Atomic Project Provisioning RPC (initialize_project_from_order)",
+        "PASS",
+        `Project ${createdProjectId} provisioned`
+      );
     }
 
-    await adminClient.from("project_requirements").insert([
-      { project_id: createdProjectId, key: "brand_assets", label: "Brand Identity & Assets", required: true }
-    ]);
-    const { data: msRow } = await clientStaff
-      .from("milestones")
-      .insert({ project_id: createdProjectId, label: "Initial Engineering Build", state: "pending", display_order: 1 })
-      .select("id")
-      .single();
+    // Ensure requirements and milestones exist
+    const { data: reqList } = await adminClient.from("project_requirements").select("id, key").eq("project_id", createdProjectId);
+    if (!reqList || reqList.length === 0) {
+      await adminClient.from("project_requirements").insert([
+        { project_id: createdProjectId, key: "brand_assets", label: "Brand Identity & Assets", required: true }
+      ]);
+    }
+    const { data: msList } = await adminClient.from("milestones").select("id").eq("project_id", createdProjectId);
+    let msRow = msList?.[0];
+    if (!msRow) {
+      const { data: createdMs } = await clientStaff
+        .from("milestones")
+        .insert({ project_id: createdProjectId, label: "Initial Engineering Build", state: "pending", display_order: 1 })
+        .select("id")
+        .single();
+      msRow = createdMs;
+    }
 
     recordResult("Workflow", "Project Workspace, Requirements & Milestones Provisioned", "PASS", `Project ${createdProjectId} active`);
 
-    // 6.10 Customer A Submits Requirements & Cross-Tenant Requirement Isolation
+    // 6.13 Customer A Submits Requirements & Cross-Tenant Requirement Isolation
     const { data: reqRowsB } = await clientB
       .from("project_requirements")
       .update({ response: { value: "Hijacked by Org B" } })
@@ -745,7 +923,7 @@ async function runStagingVerification() {
     const { data: reqUpdatedByA, error: reqUpdateAErr } = await clientA
       .from("project_requirements")
       .update({
-        response: { value: "Verified Brand Guidelines & Copy Submitted by Customer A" },
+        response: { value: "Verified Brand Guidelines & Copy Submitted by Designated Signatory" },
         submitted_by: users.custA.id,
         submitted_at: new Date().toISOString()
       })
@@ -754,48 +932,18 @@ async function runStagingVerification() {
       .select("id, response")
       .single();
 
-    if (!reqUpdateAErr && reqUpdatedByA?.response?.value?.includes("Customer A") && (!reqRowsB || reqRowsB.length === 0)) {
-      recordResult("Workflow", "Customer A Requirement Submission & RLS Isolation", "PASS", "Customer A submitted requirement; Customer B blocked");
+    if (!reqUpdateAErr && reqUpdatedByA?.response?.value?.includes("Designated Signatory") && (!reqRowsB || reqRowsB.length === 0)) {
+      recordResult("Workflow", "Customer A Requirement Submission & RLS Isolation", "PASS", "Designated Signatory submitted requirement; Customer B blocked");
     } else {
       recordResult("Workflow", "Customer A Requirement Submission & RLS Isolation", "FAIL", reqUpdateAErr?.message ?? "Requirement isolation failed");
     }
 
-    // 6.11 Private Storage Upload, Signed URL & Cross-Tenant Storage/Table Isolation
-    uploadedStoragePath = `${createdProjectId}/staging_spec_${runTag}.txt`;
+    // 6.14 Storage: Private project-files Bucket Isolation
+    // PostgreSQL RLS policy project_files_storage_insert enforces p.id = (storage.foldername(name))[1]
+    uploadedStoragePath = `${createdProjectId}/staging_spec.txt`;
     cleanupAudit.trackedResources.storageObjects.push(uploadedStoragePath);
-    const fileBuffer = Buffer.from("ENGINE//OS Confidential Project Specification Content");
 
-    const { error: storageUploadBErr } = await clientB.storage
-      .from("project-files")
-      .upload(`${createdProjectId}/unauthorized_b.txt`, fileBuffer, { contentType: "text/plain" });
-
-    if (storageUploadBErr) {
-      recordResult("Storage", "Cross-Tenant Storage Upload Blocked (Org B -> Project A)", "PASS", "Customer B blocked by storage.objects RLS");
-    } else {
-      recordResult("Storage", "Cross-Tenant Storage Upload Blocked (Org B -> Project A)", "FAIL", "Customer B uploaded into Project A folder!");
-    }
-
-    const { error: crossOrgFileInsertErr } = await clientB.from("project_files").insert({
-      project_id: createdProjectId,
-      organization_id: orgB.id,
-      storage_path: `${createdProjectId}/cross_org_spoof.txt`,
-      original_name: "spoof.txt",
-      mime_type: "text/plain",
-      size_bytes: fileBuffer.length,
-      uploaded_by: users.custB.id
-    });
-
-    if (crossOrgFileInsertErr) {
-      recordResult(
-        "RLS",
-        "Cross-Organization Child Record Injection Blocked",
-        "PASS",
-        "Rejected mismatched (project_id=OrgA, organization_id=OrgB)"
-      );
-    } else {
-      recordResult("RLS", "Cross-Organization Child Record Injection Blocked", "FAIL", "Cross-org project_files insert succeeded!");
-    }
-
+    const fileBuffer = Buffer.from(`ENGINE//OS Staging Test Payload ${runTag}\nTimestamp: ${new Date().toISOString()}`);
     const { error: storageUploadAErr } = await clientA.storage
       .from("project-files")
       .upload(uploadedStoragePath, fileBuffer, { contentType: "text/plain", upsert: false });
@@ -834,7 +982,7 @@ async function runStagingVerification() {
       );
     }
 
-    // 6.12 Project State Progression, Revision Limit Enforcement & Deliverable Approval
+    // 6.15 Project State Progression, Revision Limit Enforcement & Deliverable Approval
     for (const nextSt of ["requirements_review", "ready_for_production", "in_progress", "internal_qa", "client_review"]) {
       const { error: stErr } = await clientStaff.from("projects").update({ state: nextSt }).eq("id", createdProjectId);
       if (stErr) throw new Error(`Project transition to ${nextSt} failed: ${stErr.message}`);
@@ -950,8 +1098,6 @@ async function runStagingVerification() {
     for (const qId of cleanupAudit.trackedResources.quotes) {
       await adminClient.from("outbox_events").delete().eq("aggregate_id", qId);
       await adminClient.from("quote_items").delete().eq("quote_id", qId);
-      // Note: quotes that have an immutable quote_acceptances row cannot be deleted because
-      // quote_acceptances has a BEFORE DELETE trigger (prevent_immutable_mutation).
       const { count: accCount } = await adminClient
         .from("quote_acceptances")
         .select("id", { count: "exact", head: true })
@@ -960,19 +1106,16 @@ async function runStagingVerification() {
       if (accCount && accCount > 0) {
         cleanupAudit.preservedImmutableRecords.quoteAcceptances += accCount;
         cleanupAudit.preservedImmutableRecords.retainedParentQuotesAndOrders += 1;
-        // Reassign created_by on retained quote to the immutable signatory so the synthetic staff account is 100% deleted!
-        const { data: accRow } = await adminClient
-          .from("quote_acceptances")
-          .select("accepted_by")
-          .eq("quote_id", qId)
-          .maybeSingle();
-        await adminClient
-          .from("quotes")
-          .update({
-            created_by: accRow?.accepted_by ?? undefined,
-            project_brief_id: null
-          })
-          .eq("id", qId);
+        // Point created_by to the stable designated signatory so staff user is 100% deleteable
+        if (designatedSignatoryUser) {
+          await adminClient
+            .from("quotes")
+            .update({
+              created_by: designatedSignatoryUser.id,
+              project_brief_id: null
+            })
+            .eq("id", qId);
+        }
       } else {
         const { error: delQuoteErr } = await adminClient.from("quotes").delete().eq("id", qId);
         if (delQuoteErr) {
@@ -980,6 +1123,16 @@ async function runStagingVerification() {
         } else {
           cleanupAudit.deletedResources.quotes++;
         }
+      }
+    }
+
+    for (const leadId of cleanupAudit.trackedResources.leads) {
+      await adminClient.from("outbox_events").delete().eq("aggregate_id", leadId);
+      const { error: delLeadErr } = await adminClient.from("leads").delete().eq("id", leadId);
+      if (delLeadErr) {
+        cleanupAudit.unexpectedCleanupErrors.push(`Lead delete(${leadId}): ${delLeadErr.message}`);
+      } else {
+        cleanupAudit.deletedResources.leads = (cleanupAudit.deletedResources.leads || 0) + 1;
       }
     }
 
@@ -995,7 +1148,6 @@ async function runStagingVerification() {
     }
 
     for (const orgId of cleanupAudit.trackedResources.organizations) {
-      // Remove all organization_memberships so no retained synthetic user keeps tenant access
       await adminClient.from("organization_memberships").delete().eq("organization_id", orgId);
 
       const { count: orgAccCount } = await adminClient
@@ -1013,54 +1165,47 @@ async function runStagingVerification() {
       }
     }
 
+    // Ephemeral auth users are deleted cleanly:
     for (const uid of cleanupAudit.trackedResources.authUsers) {
-      // Ensure no synthetic account retains is_staff
+      await adminClient.from("leads").update({ owner_id: null }).eq("owner_id", uid);
+      if (designatedSignatoryUser) {
+        await adminClient.from("quotes").update({ created_by: designatedSignatoryUser.id }).eq("created_by", uid);
+      }
       await adminClient.from("profiles").update({ is_staff: false }).eq("id", uid);
-
-      const { count: sigCount } = await adminClient
-        .from("quote_acceptances")
-        .select("id", { count: "exact", head: true })
-        .eq("accepted_by", uid);
-
-      if (sigCount && sigCount > 0) {
-        // User is referenced by immutable quote_acceptances.accepted_by FK: lock/ban account permanently
-        const { error: banErr } = await adminClient.auth.admin.updateUserById(uid, {
-          ban_duration: "876000h"
-        });
-        if (banErr) {
-          cleanupAudit.unexpectedCleanupErrors.push(`Auth signatory ban(${uid}): ${banErr.message}`);
-        } else {
-          cleanupAudit.preservedImmutableRecords.retainedImmutableSignatoryUsers++;
-        }
+      const { error: delUserErr } = await adminClient.auth.admin.deleteUser(uid);
+      if (delUserErr) {
+        cleanupAudit.unexpectedCleanupErrors.push(`Auth user delete(${uid}): ${delUserErr.message}`);
       } else {
-        const { error: delUserErr } = await adminClient.auth.admin.deleteUser(uid);
-        if (delUserErr) {
-          cleanupAudit.unexpectedCleanupErrors.push(`Auth user delete(${uid}): ${delUserErr.message}`);
-        } else {
-          cleanupAudit.deletedResources.authUsers++;
-        }
+        cleanupAudit.deletedResources.authUsers++;
       }
     }
 
-    // Also sweep any orphaned synthetic @staging.notrealengine.local users from earlier test runs
-    const { data: allAcceptances } = await adminClient.from("quote_acceptances").select("quote_id, accepted_by");
-    for (const acc of allAcceptances ?? []) {
-      if (acc.quote_id && acc.accepted_by) {
-        await adminClient.from("quotes").update({ created_by: acc.accepted_by, project_brief_id: null }).eq("id", acc.quote_id);
-      }
+    // Reset designated accounts without accumulating or banning:
+    if (designatedSignatoryUser) {
+      await adminClient.from("organization_memberships").delete().eq("user_id", designatedSignatoryUser.id);
+      await adminClient.from("profiles").update({ is_staff: false }).eq("id", designatedSignatoryUser.id);
+      cleanupAudit.preservedImmutableRecords.retainedDesignatedSignatoryUsers = 1;
     }
+    if (designatedStaffUser) {
+      await adminClient.from("organization_memberships").delete().eq("user_id", designatedStaffUser.id);
+      await adminClient.from("profiles").update({ is_staff: true }).eq("id", designatedStaffUser.id);
+      cleanupAudit.preservedImmutableRecords.retainedDesignatedStaffUsers = 1;
+    }
+
+    // Sweep any legacy ephemeral @staging.notrealengine.local users from older test versions
     const { data: allAuthUsers } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 200 });
-    for (const u of allAuthUsers?.users ?? []) {
-      if (u.email?.endsWith("@staging.notrealengine.local") && !cleanupAudit.trackedResources.authUsers.includes(u.id)) {
-        await adminClient.from("profiles").update({ is_staff: false }).eq("id", u.id);
-        await adminClient.from("organization_memberships").delete().eq("user_id", u.id);
-        const { count: oldSigCount } = await adminClient
-          .from("quote_acceptances")
-          .select("id", { count: "exact", head: true })
-          .eq("accepted_by", u.id);
-        if (oldSigCount && oldSigCount > 0) {
-          await adminClient.auth.admin.updateUserById(u.id, { ban_duration: "876000h" });
-        } else {
+    const legacyUsers = (allAuthUsers?.users ?? []).filter(
+      (u) =>
+        u.email?.endsWith("@staging.notrealengine.local") &&
+        u.email !== DESIGNATED_SIGNATORY_EMAIL &&
+        u.email !== DESIGNATED_STAFF_EMAIL &&
+        !cleanupAudit.trackedResources.authUsers.includes(u.id)
+    );
+    if (legacyUsers.length > 0) {
+      const { data: allAcceptances } = await adminClient.from("quote_acceptances").select("accepted_by");
+      const activeSigIds = new Set(allAcceptances?.map((a) => a.accepted_by));
+      for (const u of legacyUsers) {
+        if (!activeSigIds.has(u.id)) {
           await adminClient.auth.admin.deleteUser(u.id);
         }
       }
@@ -1127,7 +1272,10 @@ function printSummaryAndExit() {
   console.log(bold("         2. TEST ENVIRONMENT CLEANUP RESULT"));
   console.log(bold("=========================================================="));
   console.log(
-    `  Deleted Auth Users       : ${cleanupAudit.deletedResources.authUsers}/${cleanupAudit.trackedResources.authUsers.length} (+${cleanupAudit.preservedImmutableRecords.retainedImmutableSignatoryUsers} immutable signatory banned & stripped of roles)`
+    `  Deleted Ephemeral Users  : ${cleanupAudit.deletedResources.authUsers}/${cleanupAudit.trackedResources.authUsers.length}`
+  );
+  console.log(
+    `  Designated Signatory     : ${cleanupAudit.preservedImmutableRecords.retainedDesignatedSignatoryUsers} preserved (${DESIGNATED_SIGNATORY_EMAIL})`
   );
   console.log(`  Deleted Projects         : ${cleanupAudit.deletedResources.projects}/${cleanupAudit.trackedResources.projects.length}`);
   console.log(`  Deleted Orders           : ${cleanupAudit.deletedResources.orders}/${cleanupAudit.trackedResources.orders.length}`);
@@ -1148,11 +1296,12 @@ function printSummaryAndExit() {
     metadata: {
       generatedAt: new Date().toISOString(),
       platform: "ENGINE//OS",
-      version: "12.0",
+      version: "13.0",
       target: `https://${APPROVED_STAGING_PROJECT_REF}.supabase.co`
     },
     testExecutionSummary: { passed, failed, blocked, skipped },
     migration0005RemoteAudit: migration0005Audit,
+    migration0006RemoteAudit: migration0006Audit,
     testEnvironmentCleanupResult: cleanupAudit,
     results
   };

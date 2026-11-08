@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "@/lib/auth";
 import { services } from "@/lib/catalog";
 import { type OrderState, canTransition, orderTransitions } from "@/lib/domain/states";
@@ -73,28 +72,64 @@ export async function updateOrderStateAction(input: unknown): Promise<{ ok: true
 
     // Enforce financial clearance before allowing transition to confirmed, in_production, or completed
     if (["confirmed", "in_production", "completed"].includes(nextState)) {
-      const { data: paidTx } = await supabase
+      const activeEnv = process.env.ENGINE_OS_ENV === "staging" ? "staging" : "production";
+      const { data: paidTxList } = await supabase
         .from("payment_transactions")
-        .select("id, verified_at")
+        .select("id, verified_at, amount_minor, currency, provider")
         .eq("order_id", orderId)
         .eq("state", "paid")
-        .not("verified_at", "is", null)
-        .limit(1);
+        .not("verified_at", "is", null);
 
-      const hasVerifiedPayment = Boolean(paidTx && paidTx.length > 0);
+      const validPaidTx = paidTxList?.find(
+        (tx) => tx.currency === order.currency && tx.amount_minor >= order.total_minor
+      );
+
+      const hasSyntheticPayment = Boolean(
+        paidTxList?.some((tx) =>
+          ["staging_clearance", "staging_test_clearance", "synthetic_staging"].includes(tx.provider)
+        )
+      );
+
+      if (hasSyntheticPayment && activeEnv !== "staging") {
+        return {
+          ok: false,
+          error: "Synthetic payment clearance is not permitted in production environment."
+        };
+      }
+
       const existingSettlement = currentSnapshot.settlement as
-        | { status?: string; reference?: string; approvedBy?: string }
+        | { status?: string; reference?: string; approvedBy?: string; method?: string }
         | undefined;
       const hasExistingSettlement =
         existingSettlement?.status === "approved_manual_settlement" &&
         Boolean(existingSettlement.reference?.trim()) &&
         Boolean(existingSettlement.approvedBy?.trim());
 
-      if (hasVerifiedPayment) {
+      if (
+        hasExistingSettlement &&
+        ["staging_clearance", "staging_test_clearance"].includes(existingSettlement?.method ?? "") &&
+        activeEnv !== "staging"
+      ) {
+        return {
+          ok: false,
+          error: "Synthetic manual settlement is not permitted in production environment."
+        };
+      }
+
+      if (validPaidTx) {
         clearanceMode = "verified_payment";
       } else if (hasExistingSettlement) {
         clearanceMode = "approved_manual_settlement";
       } else if (manualSettlement) {
+        if (
+          ["staging_clearance", "staging_test_clearance"].includes(manualSettlement.method) &&
+          activeEnv !== "staging"
+        ) {
+          return {
+            ok: false,
+            error: "Synthetic settlement method is not permitted in production environment."
+          };
+        }
         clearanceMode = "approved_manual_settlement";
         nextSnapshot = {
           ...currentSnapshot,
@@ -111,7 +146,7 @@ export async function updateOrderStateAction(input: unknown): Promise<{ ok: true
         return {
           ok: false,
           error:
-            "Financial clearance required: An unpaid order cannot be confirmed or moved to production without a verified payment transaction or an explicit approved manual settlement reference."
+            "Financial clearance required: An unpaid order cannot be confirmed or moved to production without a verified payment transaction (matching currency and total) or an explicit approved manual settlement reference."
         };
       }
     }
@@ -192,7 +227,7 @@ export async function initializeProjectFromOrderAction(
   orderId: string
 ): Promise<{ ok: true; projectId: string } | { ok: false; error: string }> {
   try {
-    const { supabase, user } = await requireAdmin();
+    const { supabase } = await requireAdmin();
 
     // 1. Fetch order and linked quote/brief to validate eligibility and service identity
     const { data: order, error: orderErr } = await supabase
@@ -201,6 +236,8 @@ export async function initializeProjectFromOrderAction(
         id,
         organization_id,
         state,
+        total_minor,
+        currency,
         commercial_snapshot,
         quotes (
           project_brief_id,
@@ -243,17 +280,20 @@ export async function initializeProjectFromOrderAction(
     if (!hasApprovedSettlement) {
       const { data: paidTx } = await supabase
         .from("payment_transactions")
-        .select("id")
+        .select("id, amount_minor, currency")
         .eq("order_id", orderId)
         .eq("state", "paid")
-        .not("verified_at", "is", null)
-        .limit(1);
+        .not("verified_at", "is", null);
 
-      if (!paidTx || paidTx.length === 0) {
+      const hasMatchingPayment = Boolean(
+        paidTx?.some((tx) => tx.currency === order.currency && tx.amount_minor >= order.total_minor)
+      );
+
+      if (!hasMatchingPayment) {
         return {
           ok: false,
           error:
-            "Order lacks financial clearance: a verified payment transaction or approved manual settlement is required before project provisioning."
+            "Order lacks financial clearance: a verified payment transaction matching currency and amount, or approved manual settlement, is required before project provisioning."
         };
       }
     }
@@ -272,155 +312,18 @@ export async function initializeProjectFromOrderAction(
       };
     }
 
-    const revisionLimit = typeof snapshot.revisionLimit === "number" ? snapshot.revisionLimit : 2;
-
-    const dbWriter =
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-        ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { persistSession: false, autoRefreshToken: false }
-          })
-        : supabase;
-
-    // 5. Prefer atomic PostgreSQL RPC initialize_project_from_order when deployed (Migration 0005)
+    // 5. Atomic PostgreSQL RPC initialize_project_from_order is the SOLE authoritative path.
+    // Compensating client-side fallbacks have been completely eliminated per Directive V13.0.
     const { data: rpcProjectId, error: rpcErr } = await supabase.rpc("initialize_project_from_order", {
       p_order_id: orderId,
       p_service_id: resolvedServiceId
     });
 
-    if (!rpcErr && rpcProjectId) {
-      revalidatePath("/admin/orders");
-      revalidatePath(`/admin/orders/${orderId}`);
-      revalidatePath(`/orders/${orderId}`);
-      revalidatePath("/admin/projects");
-      revalidatePath("/dashboard/projects");
-      return { ok: true, projectId: rpcProjectId as string };
-    }
-
-    if (rpcErr && !rpcErr.message.includes("does not exist") && !rpcErr.message.includes("schema cache")) {
-      return { ok: false, error: rpcErr.message };
-    }
-
-    // 6. Transactional Compensating Fallback (if RPC is not yet in schema cache):
-    // Checks every insert error and rolls back the created project row if any child insert fails!
-    const { data: newProject, error: projErr } = await dbWriter
-      .from("projects")
-      .insert({
-        order_id: orderId,
-        organization_id: order.organization_id,
-        service_id: resolvedServiceId,
-        state: "awaiting_requirements",
-        revision_limit: revisionLimit,
-        revision_count: 0
-      })
-      .select("id")
-      .single();
-
-    if (projErr || !newProject) {
-      // Handle concurrent initialization race on UNIQUE(order_id)
-      if (projErr?.code === "23505") {
-        const { data: racedProject } = await supabase
-          .from("projects")
-          .select("id")
-          .eq("order_id", orderId)
-          .maybeSingle();
-        if (racedProject) {
-          return { ok: true, projectId: racedProject.id };
-        }
-      }
-      return { ok: false, error: projErr?.message ?? "Failed to initialize project record." };
-    }
-
-    const projectId = newProject.id;
-
-    try {
-      const { error: reqErr } = await dbWriter.from("project_requirements").insert([
-        {
-          project_id: projectId,
-          key: "brand_assets",
-          label: "Brand Assets & Identity (Logos, Vectors, Color Palette, Brand Guide)",
-          required: true
-        },
-        {
-          project_id: projectId,
-          key: "content_copy",
-          label: "Primary Content Copy, Offer Descriptions, and Media Files",
-          required: true
-        },
-        {
-          project_id: projectId,
-          key: "infrastructure_credentials",
-          label: "Hosting / DNS / Domain Access Requirements",
-          required: false
-        }
-      ]);
-      if (reqErr) {
-        throw new Error(`Failed to seed project requirements: ${reqErr.message}`);
-      }
-
-      const { error: msErr } = await dbWriter.from("milestones").insert([
-        {
-          project_id: projectId,
-          label: "Requirement Verification & Technical Architecture",
-          state: "pending",
-          display_order: 1
-        },
-        {
-          project_id: projectId,
-          label: "Core Module Implementation & Integration",
-          state: "pending",
-          display_order: 2
-        },
-        {
-          project_id: projectId,
-          label: "Internal Security & QA Validation",
-          state: "pending",
-          display_order: 3
-        },
-        {
-          project_id: projectId,
-          label: "Client UAT & Sign-off Review",
-          state: "pending",
-          display_order: 4
-        },
-        {
-          project_id: projectId,
-          label: "Production Deployment & Handover",
-          state: "pending",
-          display_order: 5
-        }
-      ]);
-      if (msErr) {
-        throw new Error(`Failed to seed project milestones: ${msErr.message}`);
-      }
-
-      const { error: outboxErr } = await dbWriter.from("outbox_events").insert({
-        aggregate_type: "project",
-        aggregate_id: projectId,
-        event_type: "Project Created",
-        payload: { projectId, orderId, organizationId: order.organization_id, serviceId: resolvedServiceId },
-        state: "disabled",
-        idempotency_key: `project-created:${projectId}`
-      });
-      if (outboxErr && outboxErr.code !== "23505") {
-        throw new Error(`Failed to enqueue project outbox event: ${outboxErr.message}`);
-      }
-
-      const { error: auditErr } = await dbWriter.from("audit_logs").insert({
-        organization_id: order.organization_id,
-        actor_id: user.id,
-        action: "project.initialized",
-        entity_type: "project",
-        entity_id: projectId,
-        after_data: { orderId, serviceId: resolvedServiceId, revisionLimit }
-      });
-      if (auditErr) {
-        throw new Error(`Failed to record project initialization audit log: ${auditErr.message}`);
-      }
-    } catch (stepErr: unknown) {
-      // Compensating rollback so partially initialized projects never remain in database
-      await dbWriter.from("projects").delete().eq("id", projectId);
-      const reason = stepErr instanceof Error ? stepErr.message : "Project initialization failed.";
-      return { ok: false, error: reason };
+    if (rpcErr || !rpcProjectId) {
+      return {
+        ok: false,
+        error: rpcErr?.message ?? "PostgreSQL atomic project provisioning failed."
+      };
     }
 
     revalidatePath("/admin/orders");
@@ -429,7 +332,7 @@ export async function initializeProjectFromOrderAction(
     revalidatePath("/admin/projects");
     revalidatePath("/dashboard/projects");
 
-    return { ok: true, projectId };
+    return { ok: true, projectId: rpcProjectId as string };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error initializing project.";
     return { ok: false, error: message };

@@ -1005,15 +1005,165 @@ SET
     ELSE EXCLUDED.classification
   END;
 
+-- =============================================================================
+-- SYSTEM ENVIRONMENT GOVERNANCE TABLE & FAIL-SAFE HELPER
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.system_environment (
+  id text PRIMARY KEY DEFAULT 'current' CHECK (id = 'current'),
+  environment text NOT NULL CHECK (environment IN ('staging', 'production')) DEFAULT 'production',
+  is_synthetic_allowed boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid REFERENCES public.profiles(id)
+);
+
+ALTER TABLE public.system_environment ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS system_env_select ON public.system_environment;
+CREATE POLICY system_env_select ON public.system_environment
+  FOR SELECT TO authenticated, anon
+  USING (true);
+
+INSERT INTO public.system_environment (id, environment, is_synthetic_allowed, updated_at)
+VALUES ('current', 'staging', true, now())
+ON CONFLICT (id) DO UPDATE
+SET updated_at = now();
+
+CREATE OR REPLACE FUNCTION public.current_user_is_super_admin()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT CASE
+    WHEN current_setting('request.jwt.claim.role', true) = 'service_role' THEN true
+    ELSE coalesce((
+      SELECT role = 'super_admin' AND is_staff = true
+      FROM public.profiles
+      WHERE id = auth.uid()
+    ), false)
+  END;
+$$;
+
+REVOKE ALL ON FUNCTION public.current_user_is_super_admin() FROM public;
+GRANT EXECUTE ON FUNCTION public.current_user_is_super_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.current_user_is_super_admin() TO service_role;
+
+DROP POLICY IF EXISTS system_env_super_admin_all ON public.system_environment;
+CREATE POLICY system_env_super_admin_all ON public.system_environment
+  FOR ALL TO authenticated
+  USING (public.current_user_is_super_admin())
+  WITH CHECK (public.current_user_is_super_admin());
+
+DROP POLICY IF EXISTS terms_staff_all ON public.commercial_terms_versions;
+DROP POLICY IF EXISTS terms_staff_manage_non_production ON public.commercial_terms_versions;
+DROP POLICY IF EXISTS terms_super_admin_manage_all ON public.commercial_terms_versions;
+
+CREATE POLICY terms_staff_manage_non_production ON public.commercial_terms_versions
+  FOR ALL TO authenticated
+  USING (
+    public.current_user_is_staff() AND (
+      classification IN ('draft', 'staging_synthetic', 'retired')
+      OR public.current_user_is_super_admin()
+    )
+  )
+  WITH CHECK (
+    public.current_user_is_staff() AND (
+      classification IN ('draft', 'staging_synthetic', 'retired')
+      OR public.current_user_is_super_admin()
+    )
+  );
+
+CREATE POLICY terms_super_admin_manage_all ON public.commercial_terms_versions
+  FOR ALL TO authenticated
+  USING (public.current_user_is_super_admin())
+  WITH CHECK (public.current_user_is_super_admin());
+
+CREATE OR REPLACE FUNCTION public.approve_commercial_terms(
+  p_version text,
+  p_reference text
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_rec public.commercial_terms_versions;
+BEGIN
+  IF NOT public.current_user_is_super_admin() THEN
+    RAISE EXCEPTION 'unauthorized_super_admin_only: only a verified super_admin (founder) may approve production commercial terms'
+      USING errcode = 'insufficient_privilege';
+  END IF;
+
+  IF coalesce(trim(p_reference), '') = '' THEN
+    RAISE EXCEPTION 'invalid_approval_reference: approval reference is required'
+      USING errcode = 'invalid_parameter_value';
+  END IF;
+
+  SELECT * INTO v_rec FROM public.commercial_terms_versions WHERE version = p_version FOR UPDATE;
+  IF v_rec.version IS NULL THEN
+    RAISE EXCEPTION 'terms_version_not_found: terms version % does not exist', p_version
+      USING errcode = 'no_data_found';
+  END IF;
+
+  UPDATE public.commercial_terms_versions
+  SET
+    classification = 'approved_production',
+    approved_by = auth.uid(),
+    approved_at = now(),
+    approval_reference = trim(p_reference)
+  WHERE version = p_version
+  RETURNING * INTO v_rec;
+
+  INSERT INTO public.audit_logs(actor_id, action, entity_type, entity_id, after_data)
+  VALUES (
+    auth.uid(),
+    'commercial_terms.approved_production',
+    'commercial_terms_version',
+    p_version,
+    jsonb_build_object(
+      'version', v_rec.version,
+      'documentId', v_rec.document_id,
+      'title', v_rec.title,
+      'classification', v_rec.classification,
+      'approvedBy', v_rec.approved_by,
+      'approvedAt', v_rec.approved_at,
+      'approvalReference', v_rec.approval_reference
+    )
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'version', v_rec.version,
+    'classification', v_rec.classification,
+    'approvalReference', v_rec.approval_reference
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.approve_commercial_terms(text, text) FROM public;
+GRANT EXECUTE ON FUNCTION public.approve_commercial_terms(text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_commercial_terms(text, text) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.decide_quote(p_quote_id uuid, p_decision text, p_ip_hash text DEFAULT null)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   q public.quotes;
   t public.commercial_terms_versions;
+  v_env text := 'production';
+  v_synthetic_allowed boolean := false;
   acceptance_id uuid;
   order_id uuid;
   enriched_snapshot jsonb;
 BEGIN
+  BEGIN
+    SELECT environment, is_synthetic_allowed
+    INTO v_env, v_synthetic_allowed
+    FROM public.system_environment
+    WHERE id = 'current'
+    LIMIT 1;
+  EXCEPTION WHEN OTHERS THEN
+    v_env := 'production';
+    v_synthetic_allowed := false;
+  END;
+
+  IF v_env IS NULL THEN
+    v_env := 'production';
+    v_synthetic_allowed := false;
+  END IF;
+
   SELECT * INTO q FROM public.quotes WHERE id = p_quote_id FOR UPDATE;
   IF q.id IS NULL OR (NOT public.is_org_member(q.organization_id) AND NOT public.current_user_is_staff()) THEN
     RAISE EXCEPTION 'quote_not_found';
@@ -1040,8 +1190,22 @@ BEGIN
     IF t.version IS NULL THEN
       RAISE EXCEPTION 'unapproved_terms_version: terms version % is not registered', q.terms_version;
     END IF;
-    IF t.classification NOT IN ('approved_production', 'staging_synthetic') THEN
-      RAISE EXCEPTION 'unapproved_terms_version: terms version % has classification % and cannot bind an order', q.terms_version, t.classification;
+
+    IF t.classification = 'draft' THEN
+      RAISE EXCEPTION 'unapproved_terms_version: terms version % is draft and pending founder approval', q.terms_version;
+    ELSIF t.classification = 'retired' THEN
+      RAISE EXCEPTION 'unapproved_terms_version: terms version % is retired and cannot bind an order', q.terms_version;
+    ELSIF t.classification = 'staging_synthetic' THEN
+      IF v_env <> 'staging' OR NOT v_synthetic_allowed THEN
+        RAISE EXCEPTION 'synthetic_terms_prohibited_in_production: synthetic terms % cannot bind orders in % environment', q.terms_version, v_env
+          USING errcode = 'integrity_constraint_violation';
+      END IF;
+    ELSIF t.classification = 'approved_production' THEN
+      IF t.approved_by IS NULL OR t.approved_at IS NULL OR coalesce(trim(t.approval_reference), '') = '' THEN
+        RAISE EXCEPTION 'unapproved_terms_version: terms version % lacks verified founder approval metadata', q.terms_version;
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'unapproved_terms_version: unrecognized terms classification %', t.classification;
     END IF;
   END IF;
 
@@ -1050,6 +1214,7 @@ BEGIN
       'termsVersion', q.terms_version,
       'documentId', coalesce(t.document_id, 'UNREGISTERED'),
       'termsClassification', coalesce(t.classification, 'draft'),
+      'systemEnvironment', v_env,
       'acceptedBy', auth.uid(),
       'acceptedAt', now()
     )
@@ -1067,41 +1232,90 @@ BEGIN
     ON CONFLICT(quote_id) DO UPDATE SET quote_id = excluded.quote_id RETURNING id INTO order_id;
 
     INSERT INTO public.outbox_events(aggregate_type,aggregate_id,event_type,payload,state,idempotency_key)
-    VALUES('quote',q.id::text,'Quote Accepted',jsonb_build_object('quote_id',q.id,'order_id',order_id,'terms_classification',t.classification),'disabled','quote-accepted:'||q.id::text)
+    VALUES('quote',q.id::text,'Quote Accepted',jsonb_build_object('quote_id',q.id,'order_id',order_id,'terms_classification',t.classification,'environment',v_env),'disabled','quote-accepted:'||q.id::text)
     ON CONFLICT (idempotency_key) DO NOTHING;
   END IF;
 
   INSERT INTO public.audit_logs(organization_id,actor_id,action,entity_type,entity_id,after_data)
-  VALUES(q.organization_id,auth.uid(),'quote.'||p_decision,'quote',q.id::text,jsonb_build_object('acceptance_id',acceptance_id,'order_id',order_id,'terms_version',q.terms_version,'terms_classification',t.classification));
+  VALUES(q.organization_id,auth.uid(),'quote.'||p_decision,'quote',q.id::text,jsonb_build_object('acceptance_id',acceptance_id,'order_id',order_id,'terms_version',q.terms_version,'terms_classification',t.classification,'environment',v_env));
 
   RETURN coalesce(order_id, acceptance_id);
 END $$;
 
 REVOKE ALL ON FUNCTION public.decide_quote(uuid,text,text) FROM public;
 GRANT EXECUTE ON FUNCTION public.decide_quote(uuid,text,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.decide_quote(uuid,text,text) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.verify_order_financial_clearance()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
+  v_env text := 'production';
+  v_synthetic_allowed boolean := false;
   has_verified_payment boolean := false;
+  has_synthetic_payment boolean := false;
   has_manual_settlement boolean := false;
+  settlement_method text;
+  settlement_ref text;
 BEGIN
+  BEGIN
+    SELECT environment, is_synthetic_allowed
+    INTO v_env, v_synthetic_allowed
+    FROM public.system_environment
+    WHERE id = 'current'
+    LIMIT 1;
+  EXCEPTION WHEN OTHERS THEN
+    v_env := 'production';
+    v_synthetic_allowed := false;
+  END;
+
+  IF v_env IS NULL THEN
+    v_env := 'production';
+    v_synthetic_allowed := false;
+  END IF;
+
   IF new.state IN ('confirmed', 'in_production', 'completed') AND (old.state IS DISTINCT FROM new.state) THEN
-    SELECT EXISTS (
-      SELECT 1 FROM public.payment_transactions pt
-      WHERE pt.order_id = new.id
-        AND pt.state = 'paid'
-        AND pt.verified_at IS NOT NULL
-    ) INTO has_verified_payment;
+    SELECT
+      EXISTS (
+        SELECT 1 FROM public.payment_transactions pt
+        WHERE pt.order_id = new.id
+          AND pt.state = 'paid'
+          AND pt.verified_at IS NOT NULL
+          AND pt.currency = new.currency
+          AND pt.amount_minor >= new.total_minor
+      ),
+      EXISTS (
+        SELECT 1 FROM public.payment_transactions pt
+        WHERE pt.order_id = new.id
+          AND pt.state = 'paid'
+          AND pt.verified_at IS NOT NULL
+          AND pt.provider IN ('staging_clearance', 'staging_test_clearance', 'synthetic_staging')
+      )
+    INTO has_verified_payment, has_synthetic_payment;
+
+    IF has_synthetic_payment AND (v_env <> 'staging' OR NOT v_synthetic_allowed) THEN
+      RAISE EXCEPTION 'synthetic_settlement_prohibited_in_production: staging clearance payment methods cannot satisfy financial clearance in % environment', v_env
+        USING errcode = 'integrity_constraint_violation';
+    END IF;
+
+    settlement_method := coalesce(new.commercial_snapshot->'settlement'->>'method', '');
+    settlement_ref := coalesce(trim(new.commercial_snapshot->'settlement'->>'reference'), '');
 
     has_manual_settlement := (
       coalesce(new.commercial_snapshot->'settlement'->>'status', '') = 'approved_manual_settlement'
-      AND coalesce(trim(new.commercial_snapshot->'settlement'->>'reference'), '') <> ''
+      AND settlement_ref <> ''
       AND coalesce(trim(new.commercial_snapshot->'settlement'->>'approvedBy'), '') <> ''
     );
 
+    IF has_manual_settlement AND settlement_method IN ('staging_clearance', 'staging_test_clearance') THEN
+      IF v_env <> 'staging' OR NOT v_synthetic_allowed THEN
+        RAISE EXCEPTION 'synthetic_settlement_prohibited_in_production: % settlement method is not permitted in % environment', settlement_method, v_env
+          USING errcode = 'integrity_constraint_violation';
+      END IF;
+    END IF;
+
     IF NOT has_verified_payment AND NOT has_manual_settlement THEN
-      RAISE EXCEPTION 'order_financial_clearance_required: order % cannot transition to % without a verified payment or approved manual settlement record', new.id, new.state
+      RAISE EXCEPTION 'order_financial_clearance_required: order % cannot transition to % without a verified matching payment (amount >= %, currency = %) or approved manual settlement record',
+        new.id, new.state, new.total_minor, new.currency
         USING errcode = 'check_violation';
     END IF;
   END IF;
@@ -1134,6 +1348,7 @@ DECLARE
   req_item jsonb;
   ms_item jsonb;
   idx integer := 0;
+  has_clearance boolean := false;
 BEGIN
   IF NOT public.current_user_is_staff() AND current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
     RAISE EXCEPTION 'unauthorized_staff_only';
@@ -1151,6 +1366,25 @@ BEGIN
 
   IF o.state NOT IN ('confirmed', 'in_production') THEN
     RAISE EXCEPTION 'order_not_confirmed: order must be confirmed before provisioning a project workspace (current state: %)', o.state;
+  END IF;
+
+  SELECT (
+    EXISTS (
+      SELECT 1 FROM public.payment_transactions pt
+      WHERE pt.order_id = o.id
+        AND pt.state = 'paid'
+        AND pt.verified_at IS NOT NULL
+        AND pt.currency = o.currency
+        AND pt.amount_minor >= o.total_minor
+    )
+    OR (
+      coalesce(o.commercial_snapshot->'settlement'->>'status', '') = 'approved_manual_settlement'
+      AND coalesce(trim(o.commercial_snapshot->'settlement'->>'reference'), '') <> ''
+    )
+  ) INTO has_clearance;
+
+  IF NOT has_clearance THEN
+    RAISE EXCEPTION 'order_lacks_financial_clearance: order % lacks verified payment or approved manual settlement', o.id;
   END IF;
 
   resolved_service_id := coalesce(
@@ -1243,4 +1477,5 @@ GRANT EXECUTE ON FUNCTION public.initialize_project_from_order(uuid,text,jsonb,j
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS role text
   CHECK (role IS NULL OR role IN ('super_admin', 'sales_ops', 'delivery_manager', 'finance', 'support'));
+
 

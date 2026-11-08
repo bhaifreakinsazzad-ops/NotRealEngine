@@ -61,7 +61,7 @@ export const DEFAULT_TERMS_REGISTRY: Record<string, CommercialTermsMetadata> = {
  */
 export function evaluateTermsAcceptanceEligibility(
   terms: CommercialTermsMetadata | null | undefined,
-  environment: "staging" | "production" = process.env.ENGINE_OS_ENV === "production" ? "production" : "staging"
+  environment: "staging" | "production" = process.env.ENGINE_OS_ENV === "staging" ? "staging" : "production"
 ): { allowed: boolean; isNonBindingStaging: boolean; reason?: string } {
   if (!terms) {
     return {

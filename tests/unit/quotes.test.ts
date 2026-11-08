@@ -319,19 +319,65 @@ describe("decideQuoteAction signatory & terms governance", () => {
       error: null
     });
 
-    const res = await decideQuoteAction({
-      quoteId,
-      decision: "accepted",
-      termsAccepted: true
-    });
+    const origEnv = process.env.ENGINE_OS_ENV;
+    process.env.ENGINE_OS_ENV = "staging";
+    try {
+      const res = await decideQuoteAction({
+        quoteId,
+        decision: "accepted",
+        termsAccepted: true
+      });
 
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.orderId).toBe("order-uuid-999");
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.orderId).toBe("order-uuid-999");
+      }
+      expect(mockRpc).toHaveBeenCalledWith("decide_quote", {
+        p_quote_id: quoteId,
+        p_decision: "accepted"
+      });
+    } finally {
+      process.env.ENGINE_OS_ENV = origEnv;
     }
-    expect(mockRpc).toHaveBeenCalledWith("decide_quote", {
-      p_quote_id: quoteId,
-      p_decision: "accepted"
-    });
+  });
+
+  it("rejects STAGING-TEST-TERMS-V1.0 when environment fails closed to production", async () => {
+    const origEnv = process.env.ENGINE_OS_ENV;
+    delete process.env.ENGINE_OS_ENV;
+    try {
+      mockQuoteSingle.mockResolvedValueOnce({
+        data: {
+          id: quoteId,
+          organization_id: orgId,
+          state: "sent",
+          valid_until: new Date(Date.now() + 86400_000).toISOString(),
+          terms_version: "STAGING-TEST-TERMS-V1.0",
+          snapshot: { quoteId }
+        },
+        error: null
+      });
+      mockMembershipMaybeSingle.mockResolvedValueOnce({
+        data: { role: "owner" },
+        error: null
+      });
+      mockTermsMaybeSingle.mockResolvedValueOnce({
+        data: null,
+        error: null
+      });
+
+      const res = await decideQuoteAction({
+        quoteId,
+        decision: "accepted",
+        termsAccepted: true
+      });
+
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toMatch(/cannot be used for binding production orders/i);
+      }
+      expect(mockRpc).not.toHaveBeenCalled();
+    } finally {
+      process.env.ENGINE_OS_ENV = origEnv;
+    }
   });
 });

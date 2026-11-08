@@ -96,7 +96,7 @@ export async function decideQuoteAction(input: unknown): Promise<DecideQuoteResu
         termsMeta = DEFAULT_TERMS_REGISTRY[quote.terms_version] ?? null;
       }
 
-      const activeEnv = process.env.ENGINE_OS_ENV === "production" ? "production" : "staging";
+      const activeEnv = process.env.ENGINE_OS_ENV === "staging" ? "staging" : "production";
       const eligibility = evaluateTermsAcceptanceEligibility(termsMeta, activeEnv);
       if (!eligibility.allowed) {
         return {
