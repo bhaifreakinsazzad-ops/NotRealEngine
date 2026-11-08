@@ -56,4 +56,16 @@ test.describe("Security & Fail-Closed Guards", () => {
     await page.goto("/orders/00000000-0000-0000-0000-000000000000");
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test("unauthenticated project workspace routes redirect to login perimeter", async ({ page }) => {
+    await page.goto("/dashboard/projects/00000000-0000-0000-0000-000000000000");
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test("login page renders authenticated sign-in and account creation controls", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
+    await expect(page.getByLabel("Password")).toBeVisible();
+  });
 });

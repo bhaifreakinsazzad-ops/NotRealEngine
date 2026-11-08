@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { type QuoteState, canTransition, quoteTransitions } from "./states";
 
+export const APPROVED_TERMS_VERSIONS = new Set<string>([
+  "ENGINE//OS-TERMS-V1.0",
+  "STANDARD-V1.0",
+  "STAGING-TEST-TERMS-V1.0"
+]);
+
 export const quoteItemSchema = z.object({
   label: z.string().min(2, "Item label is required").max(200),
   description: z.string().max(1000).optional().nullable(),
@@ -63,6 +69,8 @@ export function validateQuoteForPublishing(params: {
 
   if (!params.termsVersion || params.termsVersion.trim() === "") {
     errors.push("Terms version is required for publishing.");
+  } else if (!APPROVED_TERMS_VERSIONS.has(params.termsVersion)) {
+    errors.push(`Terms version "${params.termsVersion}" is not an approved commercial terms version.`);
   }
 
   if (!params.validUntil) {

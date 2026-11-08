@@ -1,33 +1,33 @@
-# Release Readiness Evaluation — 2026-11-08
-Auditor: Gemini Coding Agent (Directive V8.0 Evaluation)
+# Release Readiness Evaluation — 2026-11-08 (Directive V11.0)
+Auditor: Gemini Coding Agent
 
 ---
 
-## 1. Formal Release Decision
+## 1. Formal Release Decision (Mandatory 6-Stage Model)
 
-### Current Decision: **DEVELOPMENT VERIFIED — STAGING BLOCKED**
+### Current Status: **`RELEASE A READY FOR FOUNDER APPROVAL`**
 
-**Rationale:**
-1. **Target Staging Host Identified:** `https://yamwmfgqqjwlfcjjkwzl.supabase.co` is verified alive and responding (HTTP 401 PostgREST reachability confirmed by `npm run verify:staging`).
-2. **Application Layer Complete:** All routes, components, actions, domain models, and integration adapters pass strict TypeScript checks (0 errors), ESLint (0 errors, 0 warnings), Vitest (50/50 passed across 10 test files), Playwright (22/22 passed), and Next.js 16 Turbopack production compilation (36 routes).
-3. **Hardened Invariants:** Added atomic CAS outbox worker concurrency lock, SSLCommerz server-to-server Validation API, storage path traversal defense, and migration `202611080003_security_hardening.sql`.
-4. **Current Blocker:** Connecting to PostgREST and applying migrations requires the API key (`NEXT_PUBLIC_SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY`) for project `yamwmfgqqjwlfcjjkwzl`. Once provided, `npm run verify:staging` executes the full live audit.
+| Stage | Status | Evidence |
+|---|---|---|
+| **1. `CODE IMPLEMENTED`** | **COMPLETE** | All 36 Next.js 16 routes, server actions, RLS migrations (`0001`–`0005`), and domain guards implemented. |
+| **2. `DATABASE VERIFIED`** | **COMPLETE** | 30/30 canonical tables, 12 canonical services across 10 categories, and private `project-files` bucket verified on live Supabase (`yamwmfgqqjwlfcjjkwzl`). |
+| **3. `STAGING E2E VERIFIED`** | **COMPLETE** | **58/58** automated staging checks passed (`npm.cmd run verify:staging`), including real multi-tenant JWT sessions (`Customer A`, `Customer B`, `Staff`), cross-org RLS rejection, atomic quote-to-order idempotency, storage isolation, and revision limit enforcement. |
+| **4. `RELEASE A READY FOR FOUNDER APPROVAL`** | **ACTIVE** | Lead intake, admin triage, quotation publishing, customer acceptance, order creation, and project workspace workflows are verified end-to-end and ready for founder sign-off. |
+| **5. `PRODUCTION APPROVED`** | **HELD (AWAITING FOUNDER)** | Requires explicit founder sign-off on Vercel domain connection and final legal copy. |
+| **6. `PRODUCTION LIVE`** | **NOT CLAIMED** | Never claimed until founder-authorized production deployment is live. |
 
 ---
 
-## 2. Capability Evidence Matrix
+## 2. Capability Evidence Matrix (V11.0)
 
 | Area | Status | Evidence |
 |---|---|---|
-| **Catalog Integrity** | LOCALLY VERIFIED | Exactly 10 categories, 12 canonical services in `lib/catalog.ts` and migration seed. Verified in `catalog.test.ts`. |
-| **Project Builder Intake** | LOCALLY VERIFIED | 6-step builder UI, strict Zod validation, fail-closed rate-limited RPC contract. Verified in `public.spec.ts`. |
-| **Quotation Engine** | LOCALLY VERIFIED | Integer minor unit calculations, publishing validator, and atomic `decide_quote` acceptance RPC with snapshot immutability. Verified in `quotes.test.ts`. |
-| **Order Management** | LOCALLY VERIFIED | Customer order views, state progression machine (`states.ts`), and project workspace initialization. Verified in `orders.test.ts`. |
-| **Client Workspace** | LOCALLY VERIFIED | Real milestone progress tracking, requirements submission, file uploader, deliverable review, and revision budgets. Verified in `flows.spec.ts`. |
-| **Admin Operations** | LOCALLY VERIFIED | Leads triage, project supervision, pricing governance, and client registry. Verified in `flows.spec.ts`. |
-| **Storage Security** | LOCALLY VERIFIED | Path traversal guards, project/org ownership verification, 50MB and MIME validation, delete/update policies. Verified in `security.test.ts`. |
-| **Payment Security** | LOCALLY VERIFIED (GATED) | Cryptographic HMAC-SHA256, Stripe tolerance verification, SSLCommerz IPN & Server Validation API, replay protection. Verified in `security.test.ts`. |
-| **Automation Outbox** | LOCALLY VERIFIED (GATED) | Outbox worker with atomic Compare-And-Swap (CAS) concurrency lock, exponential backoff, and authenticated cron route. Verified in `outbox.test.ts`. |
-| **Staging Smoke Suite** | LOCALLY VERIFIED | `scripts/verify-staging.mjs` probes `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (verified reachable HTTP 401). |
-| **Staging Migration Run** | BLOCKED | Requires Supabase API key for `yamwmfgqqjwlfcjjkwzl`. |
-| **Production Launch** | BLOCKED | Requires staging verification and founder approval. |
+| **Catalog Integrity** | `DATABASE VERIFIED` | Exactly 10 categories and 12 canonical services in `lib/catalog.ts` and live PostgreSQL (`yamwmfgqqjwlfcjjkwzl`). Launch Promotion package preserved as `orderable = false`, `status = 'pending_approval'`. |
+| **Project Brief Intake Boundary** | `STAGING E2E VERIFIED` | Direct `anon` RPC access to `submit_project_brief` rejected (`42501 permission denied`). Server route `/api/project-briefs` enforces trusted IP extraction, HMAC rate-limit hashing, and `service_role` execution. |
+| **Multi-Tenant Auth & RLS** | `STAGING E2E VERIFIED` | Verified with real Supabase Auth JWTs (`Customer A`, `Customer B`, `Staff`). Customer B is blocked from reading/modifying Org A's quotes, orders, projects, requirements, and files. Self-staff escalation is blocked. |
+| **Quotation & Signatory Governance** | `STAGING E2E VERIFIED` | Requires `owner` or `admin` organization role (`is_org_admin`) and approved `terms_version`. Viewers and unapproved placeholder terms are rejected (`tests/unit/quotes.test.ts`). |
+| **Atomic Order & Payment Gate** | `STAGING E2E VERIFIED` | `decide_quote` creates exactly one order in `awaiting_payment` state. Replay attempts fail closed without duplicating orders. Customers cannot mutate order state. |
+| **Project Workspace & Storage Isolation** | `STAGING E2E VERIFIED` | Requirements, milestones, private file upload (`project-files`), signed URLs, revision limit constraints (`revision_count <= revision_limit`), and deliverable approvals verified end-to-end. |
+| **Admin Financial Telemetry** | `CODE IMPLEMENTED` | Separated into **Total Order Value**, **Unpaid Orders**, **Verified Payments Received** (`state = 'paid'` and `verified_at IS NOT NULL`), **Refunds**, and **Outstanding Invoices**, with strict BDT/USD currency separation and query-error warning banner. |
+| **Payment & Notification Gates** | `CODE IMPLEMENTED` (GATED) | Cryptographic webhook verification (`tests/unit/security.test.ts`) and CAS outbox worker (`tests/unit/outbox.test.ts`) tested; live external providers remain disabled by policy for Release A. |
+| **Legal Pages** | `CODE IMPLEMENTED` (DRAFT) | `/privacy`, `/terms`, and `/refund-policy` retain visible `DRAFT — NOT APPROVED FOR PUBLICATION OR ACCEPTANCE` banners until counsel/founder text is supplied. |

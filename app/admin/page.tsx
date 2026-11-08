@@ -1,40 +1,126 @@
 import Link from "next/link";
-import { Bell, Database, FileText, LockKeyhole } from "lucide-react";
+import { AlertTriangle, Bell, Database, FileText, LockKeyhole } from "lucide-react";
 import { requireAdmin } from "@/lib/auth";
 
 export default async function AdminPage() {
   const { supabase } = await requireAdmin();
 
   const [
-    { data: briefs },
-    { data: audit },
-    { data: leads },
-    { data: quotes },
-    { data: orders },
-    { data: projects }
+    briefsRes,
+    auditRes,
+    leadsRes,
+    quotesRes,
+    ordersRes,
+    paymentsRes,
+    invoicesRes,
+    projectsRes
   ] = await Promise.all([
-    supabase.from("project_briefs").select("id,reference,status,service_id,created_at").order("created_at", { ascending: false }).limit(6),
-    supabase.from("audit_logs").select("id,action,entity_type,created_at").order("created_at", { ascending: false }).limit(8),
+    supabase
+      .from("project_briefs")
+      .select("id,reference,status,service_id,created_at")
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("audit_logs")
+      .select("id,action,entity_type,created_at")
+      .order("created_at", { ascending: false })
+      .limit(8),
     supabase.from("leads").select("id,status", { count: "exact" }),
     supabase.from("quotes").select("id,state,total_minor,currency"),
     supabase.from("orders").select("id,state,total_minor,currency"),
+    supabase.from("payment_transactions").select("id,state,amount_minor,currency,verified_at"),
+    supabase.from("invoices").select("id,status,total_minor,currency"),
     supabase.from("projects").select("id,state")
   ]);
 
-  const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  const queryErrors = [
+    briefsRes.error,
+    auditRes.error,
+    leadsRes.error,
+    quotesRes.error,
+    ordersRes.error,
+    paymentsRes.error,
+    invoicesRes.error,
+    projectsRes.error
+  ].filter(Boolean);
 
-  // Compute truth-grounded metrics
+  const briefs = briefsRes.data;
+  const audit = auditRes.data;
+  const leads = leadsRes.data;
+  const quotes = quotesRes.data;
+  const orders = ordersRes.data;
+  const payments = paymentsRes.data;
+  const invoices = invoicesRes.data;
+  const projects = projectsRes.data;
+
+  const configured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  // Operational pipeline metrics
   const totalLeads = leads?.length ?? 0;
   const totalQuotes = quotes?.length ?? 0;
   const acceptedQuotes = quotes?.filter((q) => q.state === "accepted").length ?? 0;
   const totalOrders = orders?.length ?? 0;
-  const confirmedOrders = orders?.filter((o) => ["confirmed", "in_production", "completed"].includes(o.state)).length ?? 0;
-  const activeProjects = projects?.filter((p) => p.state !== "delivered" && p.state !== "cancelled").length ?? 0;
+  const activeProjects =
+    projects?.filter((p) => p.state !== "delivered" && p.state !== "cancelled").length ?? 0;
 
-  // Calculate confirmed revenue in BDT minor units
-  const confirmedRevenueMinor = orders
-    ?.filter((o) => ["confirmed", "in_production", "completed"].includes(o.state) && o.currency === "BDT")
-    .reduce((acc, o) => acc + o.total_minor, 0) ?? 0;
+  // 1. Total Order Value (non-cancelled orders, strictly separated by currency)
+  const validOrders = orders?.filter((o) => o.state !== "cancelled") ?? [];
+  const totalOrderValueBdtMinor = validOrders
+    .filter((o) => o.currency === "BDT")
+    .reduce((acc, o) => acc + o.total_minor, 0);
+  const totalOrderValueUsdMinor = validOrders
+    .filter((o) => o.currency === "USD")
+    .reduce((acc, o) => acc + o.total_minor, 0);
+
+  // 2. Unpaid Orders (awaiting_payment)
+  const unpaidOrders = orders?.filter((o) => o.state === "awaiting_payment") ?? [];
+  const unpaidOrdersCount = unpaidOrders.length;
+  const unpaidOrderValueBdtMinor = unpaidOrders
+    .filter((o) => o.currency === "BDT")
+    .reduce((acc, o) => acc + o.total_minor, 0);
+  const unpaidOrderValueUsdMinor = unpaidOrders
+    .filter((o) => o.currency === "USD")
+    .reduce((acc, o) => acc + o.total_minor, 0);
+
+  // 3. Verified Payments Received (strictly from payment_transactions where state = 'paid' AND verified_at IS NOT NULL)
+  const verifiedPaidTx =
+    payments?.filter((tx) => tx.state === "paid" && Boolean(tx.verified_at)) ?? [];
+  const verifiedPaidBdtMinor = verifiedPaidTx
+    .filter((tx) => tx.currency === "BDT")
+    .reduce((acc, tx) => acc + tx.amount_minor, 0);
+  const verifiedPaidUsdMinor = verifiedPaidTx
+    .filter((tx) => tx.currency === "USD")
+    .reduce((acc, tx) => acc + tx.amount_minor, 0);
+
+  // 4. Refunds (payment_transactions where state IN ('refunded', 'partially_refunded'))
+  const refundedTx =
+    payments?.filter((tx) => tx.state === "refunded" || tx.state === "partially_refunded") ?? [];
+  const refundedCount = refundedTx.length;
+  const refundedBdtMinor = refundedTx
+    .filter((tx) => tx.currency === "BDT")
+    .reduce((acc, tx) => acc + tx.amount_minor, 0);
+  const refundedUsdMinor = refundedTx
+    .filter((tx) => tx.currency === "USD")
+    .reduce((acc, tx) => acc + tx.amount_minor, 0);
+
+  // 5. Outstanding Invoices (invoices where status IN ('issued', 'overdue'))
+  const outstandingInvoices =
+    invoices?.filter((inv) => inv.status === "issued" || inv.status === "overdue") ?? [];
+  const outstandingInvoicesCount = outstandingInvoices.length;
+  const outstandingInvoicesBdtMinor = outstandingInvoices
+    .filter((inv) => inv.currency === "BDT")
+    .reduce((acc, inv) => acc + inv.total_minor, 0);
+  const outstandingInvoicesUsdMinor = outstandingInvoices
+    .filter((inv) => inv.currency === "USD")
+    .reduce((acc, inv) => acc + inv.total_minor, 0);
+
+  const formatMinor = (minor: number) =>
+    (minor / 100).toLocaleString("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
 
   return (
     <div>
@@ -42,13 +128,30 @@ export default async function AdminPage() {
         Live payments and external email/SMS notifications remain disabled by policy until approved provider credentials are verified.
       </div>
 
-      {/* Real Operations Metrics */}
+      {queryErrors.length > 0 && (
+        <div
+          className="error-box"
+          style={{
+            marginTop: "1rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.6rem"
+          }}
+        >
+          <AlertTriangle size={18} />
+          <span>
+            <strong>Telemetry Query Warning:</strong> {queryErrors.length} database metric query(s) reported an issue ({queryErrors[0]?.message}). Displayed figures reflect partial query results.
+          </span>
+        </div>
+      )}
+
+      {/* Primary Operational Metrics */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
           gap: "1rem",
-          margin: "1.5rem 0"
+          margin: "1.5rem 0 1rem"
         }}
       >
         <div className="panel" style={{ padding: "1.2rem" }}>
@@ -66,19 +169,71 @@ export default async function AdminPage() {
         </div>
 
         <div className="panel" style={{ padding: "1.2rem" }}>
-          <span className="mono muted" style={{ fontSize: "0.74rem" }}>CONFIRMED REVENUE</span>
-          <strong style={{ display: "block", fontSize: "1.8rem", marginTop: "0.2rem", color: "var(--success)" }}>
-            BDT {(confirmedRevenueMinor / 100).toLocaleString()}
-          </strong>
-          <span className="mono muted" style={{ fontSize: "0.72rem" }}>{confirmedOrders} of {totalOrders} orders</span>
-        </div>
-
-        <div className="panel" style={{ padding: "1.2rem" }}>
           <span className="mono muted" style={{ fontSize: "0.74rem" }}>ACTIVE PROJECTS</span>
           <strong style={{ display: "block", fontSize: "1.8rem", marginTop: "0.2rem", color: "var(--gold)" }}>
             {activeProjects}
           </strong>
           <span className="mono muted" style={{ fontSize: "0.72rem" }}>In engineering production</span>
+        </div>
+      </div>
+
+      {/* Separated Commercial & Payment Accounting Metrics (BDT / USD Isolated) */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: "1rem",
+          margin: "0 0 1.5rem"
+        }}
+      >
+        <div className="panel" style={{ padding: "1.1rem" }}>
+          <span className="mono muted" style={{ fontSize: "0.72rem" }}>TOTAL ORDER VALUE</span>
+          <strong style={{ display: "block", fontSize: "1.35rem", marginTop: "0.25rem", color: "var(--text)" }} className="mono">
+            BDT {formatMinor(totalOrderValueBdtMinor)}
+          </strong>
+          <span className="mono muted" style={{ fontSize: "0.72rem", display: "block", marginTop: "0.15rem" }}>
+            USD {formatMinor(totalOrderValueUsdMinor)} · {totalOrders} total orders
+          </span>
+        </div>
+
+        <div className="panel" style={{ padding: "1.1rem" }}>
+          <span className="mono muted" style={{ fontSize: "0.72rem" }}>UNPAID ORDERS</span>
+          <strong style={{ display: "block", fontSize: "1.35rem", marginTop: "0.25rem", color: "var(--gold)" }} className="mono">
+            {unpaidOrdersCount} Orders
+          </strong>
+          <span className="mono muted" style={{ fontSize: "0.72rem", display: "block", marginTop: "0.15rem" }}>
+            BDT {formatMinor(unpaidOrderValueBdtMinor)} / USD {formatMinor(unpaidOrderValueUsdMinor)}
+          </span>
+        </div>
+
+        <div className="panel" style={{ padding: "1.1rem" }}>
+          <span className="mono muted" style={{ fontSize: "0.72rem" }}>VERIFIED PAYMENTS RECEIVED</span>
+          <strong style={{ display: "block", fontSize: "1.35rem", marginTop: "0.25rem", color: "var(--success)" }} className="mono">
+            BDT {formatMinor(verifiedPaidBdtMinor)}
+          </strong>
+          <span className="mono muted" style={{ fontSize: "0.72rem", display: "block", marginTop: "0.15rem" }}>
+            USD {formatMinor(verifiedPaidUsdMinor)} · {verifiedPaidTx.length} verified tx
+          </span>
+        </div>
+
+        <div className="panel" style={{ padding: "1.1rem" }}>
+          <span className="mono muted" style={{ fontSize: "0.72rem" }}>REFUNDS RECORDED</span>
+          <strong style={{ display: "block", fontSize: "1.35rem", marginTop: "0.25rem", color: "var(--silver)" }} className="mono">
+            {refundedCount} Refunds
+          </strong>
+          <span className="mono muted" style={{ fontSize: "0.72rem", display: "block", marginTop: "0.15rem" }}>
+            BDT {formatMinor(refundedBdtMinor)} / USD {formatMinor(refundedUsdMinor)}
+          </span>
+        </div>
+
+        <div className="panel" style={{ padding: "1.1rem" }}>
+          <span className="mono muted" style={{ fontSize: "0.72rem" }}>OUTSTANDING INVOICES</span>
+          <strong style={{ display: "block", fontSize: "1.35rem", marginTop: "0.25rem", color: "var(--cyan)" }} className="mono">
+            {outstandingInvoicesCount} Open
+          </strong>
+          <span className="mono muted" style={{ fontSize: "0.72rem", display: "block", marginTop: "0.15rem" }}>
+            BDT {formatMinor(outstandingInvoicesBdtMinor)} / USD {formatMinor(outstandingInvoicesUsdMinor)}
+          </span>
         </div>
       </div>
 

@@ -3,11 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
+import { APPROVED_TERMS_VERSIONS } from "@/lib/domain/quotes";
 
 const decideQuoteSchema = z.object({
   quoteId: z.string().uuid("Invalid quotation identifier"),
   decision: z.enum(["accepted", "rejected"]),
   termsAccepted: z.boolean().optional(),
+  termsVersion: z.string().optional(),
   reason: z.string().max(1000).optional()
 });
 
@@ -28,16 +30,59 @@ export async function decideQuoteAction(input: unknown): Promise<DecideQuoteResu
   }
 
   try {
-    const { supabase } = await requireUser();
+    const { supabase, user } = await requireUser();
 
+    // 1. Fetch quote metadata to validate organization signatory authority & terms governance
+    const { data: quote, error: quoteErr } = await supabase
+      .from("quotes")
+      .select("id, organization_id, state, valid_until, terms_version, snapshot")
+      .eq("id", quoteId)
+      .single();
+
+    if (quoteErr || !quote) {
+      return { ok: false, error: "Quotation not found or you lack permission for this organization." };
+    }
+
+    // 2. Verify caller is an authorized organization signatory (owner or admin) or staff
+    const { data: membership } = await supabase
+      .from("organization_memberships")
+      .select("role")
+      .eq("organization_id", quote.organization_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membership || !["owner", "admin"].includes(membership.role)) {
+      return {
+        ok: false,
+        error: "Only an authorized organization owner or administrator may sign off on a commercial quotation."
+      };
+    }
+
+    // 3. Enforce terms version & snapshot governance before accepting
+    if (decision === "accepted") {
+      if (!quote.terms_version || !APPROVED_TERMS_VERSIONS.has(quote.terms_version)) {
+        return {
+          ok: false,
+          error: "This quotation references unapproved or placeholder legal terms and cannot bind an order."
+        };
+      }
+      if (!quote.snapshot) {
+        return { ok: false, error: "Quotation snapshot is missing. Please contact staff to republish." };
+      }
+      if (!quote.valid_until || new Date(quote.valid_until) <= new Date()) {
+        return { ok: false, error: "This quotation has expired and is no longer open for acceptance." };
+      }
+    }
+
+    // 4. Execute atomic PostgreSQL RPC
     const { data, error } = await supabase.rpc("decide_quote", {
       p_quote_id: quoteId,
       p_decision: decision
     });
 
     if (error) {
-      if (error.message.includes("quote_not_found")) {
-        return { ok: false, error: "Quotation not found or you lack permission for this organization." };
+      if (error.message.includes("quote_not_found") || error.message.includes("unauthorized_signatory")) {
+        return { ok: false, error: "Quotation not found or you lack signatory permission for this organization." };
       }
       if (error.message.includes("quote_not_acceptable")) {
         return { ok: false, error: "This quotation is not open for acceptance or has expired." };

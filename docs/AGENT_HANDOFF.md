@@ -1,84 +1,60 @@
-# ENGINE//OS — Agent Handoff & Continuity Record
-Updated: 2026-11-08 by Gemini Coding Agent (Directive V8.0 Handoff)
+# ENGINE//OS — Agent Handoff & Continuity Record (V11.0)
+Updated: 2026-11-08 by Gemini Coding Agent (Directive V11.0 Handoff)
 
-## 1. Executive Summary & Takeover Context
+## 1. Executive Summary & Release Status
 - **Product:** ENGINE//OS (NOTREAL ENGINE, LLC)
 - **Active Lead Developer Agent:** Gemini Coding Agent
-- **Preceding Developer:** OpenAI Codex (Historical Baseline Commit: `287ebd9`)
-- **Git HEAD Commit:** `9fafc13` (Preceding hardening commit)
-- **Current Working Branch:** `master`
-- **Remote Origin URL:** `https://github.com/bhaifreakinsazzad-ops/NotRealEngine.git` (Fetched; `origin/main` has initial commit)
-- **Target Supabase Staging URL:** `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (Reachable, HTTP 401 PostgREST live)
-- **Release Decision:** DEVELOPMENT VERIFIED — STAGING BLOCKED (Pending Supabase Staging Keys)
+- **Git Branch:** `main` (synchronized with `origin/main` at `https://github.com/bhaifreakinsazzad-ops/NotRealEngine`)
+- **Supabase Staging Project:** `yamwmfgqqjwlfcjjkwzl` (`https://yamwmfgqqjwlfcjjkwzl.supabase.co`)
+- **Current Release Stage:** **`RELEASE A READY FOR FOUNDER APPROVAL`**
+  - `CODE IMPLEMENTED`: **COMPLETE**
+  - `DATABASE VERIFIED`: **COMPLETE** (30/30 tables, 12 canonical services across 10 categories)
+  - `STAGING E2E VERIFIED`: **COMPLETE** (58/58 live staging checks passed, including multi-tenant JWT sessions, cross-org RLS isolation, atomic quote-to-order idempotency, storage isolation, and revision limit constraints)
+  - `RELEASE A READY FOR FOUNDER APPROVAL`: **ACTIVE**
+  - `PRODUCTION APPROVED`: **HELD (Awaiting Founder Sign-Off)**
+  - `PRODUCTION LIVE`: **NOT CLAIMED**
 
 ---
 
-## 2. Core Architecture & Verification Evidence
-- **Framework:** Next.js 16.4.5 (Turbopack, App Router) with React 19.3.1
-- **Language / Typing:** TypeScript 5.7.2 (Strict mode enabled, `noEmit` verification: 0 errors)
-- **Styling:** Tailwind CSS 4.3.5 with Obsidian / Metallic / Electric Cyan theme
-- **Database & Identity:** Supabase SSR (`@supabase/ssr` 0.12.7, `@supabase/supabase-js` 2.119.0)
-  - PostgreSQL 15+ engine with 24 RLS-governed tables
-  - Migrations:
-    - `202611080001_engine_os_foundation.sql` (Tables, RLS, RPCs, Storage bucket)
-    - `202611080002_seed_canonical_services.sql` (10 categories, 12 services)
-    - `202611080003_security_hardening.sql` (Authenticated brief submission, storage delete/update policies)
-  - Trigger-enforced state transitions (`quote_state`, `order_state`, `project_state`)
-  - Atomic database RPCs (`submit_project_brief`, `decide_quote` with `FOR UPDATE` row lock)
-- **Test Metrics:**
-  - **Unit Tests:** 50 tests across 10 test files (100% passing)
-  - **E2E Playwright Tests:** 22 tests across Desktop Chromium and Mobile Pixel 7 (100% passing)
-  - **Production Build:** 36 static, SSG, dynamic, and API routes cleanly compiled
-  - **Staging Smoke Suite:** `npm run verify:staging` active (`scripts/verify-staging.mjs`, output: `docs/staging-report.json`)
-  - **Security Audit:** 0 production vulnerabilities; 13 targeted tenant isolation & signature unit tests passing
+## 2. V11.0 Remediations & Verification Evidence
+1. **Strict Intake Boundary & False-Positive Removal (`scripts/verify-staging.mjs`, `app/api/project-briefs/route.ts`, `202611080005`):**
+   - Removed the fallback PASS in `scripts/verify-staging.mjs`. Direct `anon` RPC calls to `submit_project_brief` are strictly verified to fail with `42501 permission denied`.
+   - Hardened `extractClientIp` in `app/api/project-briefs/route.ts` to prioritize trusted proxy headers (`x-vercel-forwarded-for`, `cf-connecting-ip`, `x-real-ip`) and use `RATE_LIMIT_SECRET || SUPABASE_SERVICE_ROLE_KEY` for HMAC rate-limit hashing.
+   - Authored migration `202611080005_v11_commercial_and_rpc_hardening.sql` revoking direct `authenticated` execute access on `submit_project_brief` so only `service_role` can execute it.
+2. **Quotation Signatory & Terms Governance (`app/quotes/actions.ts`, `lib/domain/quotes.ts`, `components/quote-decision-form.tsx`):**
+   - Verified caller is an organization `owner` or `admin` before allowing quote acceptance or rejection (`viewer` roles are rejected).
+   - Validated `terms_version` against `APPROVED_TERMS_VERSIONS` (`ENGINE//OS-TERMS-V1.0`, `STANDARD-V1.0`, `STAGING-TEST-TERMS-V1.0`) and blocked unapproved placeholder terms.
+   - Added explicit Commercial Governance Notice on the quotation sign-off panel while public legal pages remain in draft state.
+3. **Separated Truth-Grounded Admin Financial Metrics (`app/admin/page.tsx`):**
+   - Replaced the single `CONFIRMED REVENUE` card with 5 distinct, currency-separated (`BDT` / `USD`) financial panels:
+     - **Total Order Value**
+     - **Unpaid Orders** (`awaiting_payment`)
+     - **Verified Payments Received** (`payment_transactions` where `state = 'paid'` and `verified_at IS NOT NULL`)
+     - **Refunds Recorded** (`refunded` / `partially_refunded`)
+     - **Outstanding Invoices** (`issued` / `overdue`)
+   - Added an explicit telemetry warning banner if any Supabase query returns an error.
+4. **Live Multi-Tenant E2E Lifecycle Verification (`scripts/verify-staging.mjs` — 58/58 PASS):**
+   - Automatically provisions temporary `Customer A`, `Customer B`, and `Staff` accounts via Supabase Auth Admin API, signs in each role to obtain real JWT sessions, verifies tenant isolation across organizations, leads, quotes, orders, project requirements, `project_files`, and Storage (`project-files`), verifies revision limit enforcement (`revision_count <= revision_limit`) and deliverable approval/delivery, and cleans up all synthetic fixtures in a `finally` block.
 
 ---
 
-## 3. Key Architecture & File Map
-| Functional Area | Primary Path | Security & Architectural Invariants |
-|---|---|---|
-| Canonical Registry | `lib/catalog.ts` | Exactly 10 categories, 12 canonical services. Web App and PWA are distinct. |
-| Commercial Engine | `lib/domain/quotes.ts` | Strict integer minor units. Immutable snapshot generated upon quote publishing and acceptance. |
-| Quotation Interface | `app/quotes/[id]`, `app/quotes/actions.ts` | Calls atomic RPC `decide_quote`. Creates order idempotently upon acceptance. |
-| Client Workspace | `app/dashboard/`, `app/dashboard/projects/` | Milestone progress bar, requirement desk, deliverable sign-offs, revision limits. |
-| Secure File Storage | `components/project-file-uploader.tsx`, `app/dashboard/actions.ts` | 50MB max, MIME whitelist, storage path strictly `${projectId}/<file>`, traversal sequences rejected. |
-| Admin Operations | `app/admin/` | Real-time operational queues: leads, quotes, orders, projects, pricing, support. |
-| Payment Gateway | `lib/integrations/payments/`, `app/api/webhooks/payment/` | Constant-time HMAC-SHA256, Stripe tolerance check, SSLCommerz server-to-server Validation API. |
-| Automation Worker | `lib/integrations/outbox-worker.ts`, `app/api/cron/outbox/` | Transactional outbox with atomic Compare-And-Swap (CAS) concurrency lock; bearer-token authenticated cron endpoint. |
-| Staging Smoke Test | `scripts/verify-staging.mjs` | Automated smoke testing suite for live staging Supabase instance (`npm run verify:staging`). |
-
----
-
-## 4. Documentation Suite
-- `docs/STAGING_VERIFICATION.md` — Step-by-step guide for staging deployment and two-tenant verification.
-- `docs/SECURITY_AUDIT.md` — Complete threat model, RLS audit, and storage hardening report.
-- `docs/INTEGRATION_STATUS.md` — Payment gateway comparison, webhook protocols, and outbox runner.
-- `docs/PRODUCTION_LAUNCH_CHECKLIST.md` — Pre-flight quality gates, launch checklist, and release phases.
-- `docs/FOUNDER_APPROVALS.md` — Register of founder-controlled decisions and environment requirements.
-- `docs/RELEASE_READINESS.md` — Up-to-date release readiness evaluation.
-- `docs/IMPLEMENTATION_STATUS.md` — Truthful matrix of all 23 application areas.
-- `docs/NEXT_ACTIONS.md` — Prioritized engineering backlog.
-- `docs/staging-report.json` — Machine-readable staging smoke test output.
-
----
-
-## 5. Commands to Run Verification
+## 3. Commands to Run Full Verification
 ```bash
-# Staging Smoke Verification (Connects to https://yamwmfgqqjwlfcjjkwzl.supabase.co)
+# 1. Live Multi-Tenant Staging Verification (58 checks against yamwmfgqqjwlfcjjkwzl)
 npm.cmd run verify:staging
 
-# Strict Typecheck
+# 2. Strict TypeScript Check
 npm.cmd run typecheck
 
-# ESLint
+# 3. ESLint
 npm.cmd run lint
 
-# Vitest Unit & Domain Test Suite (50 tests)
+# 4. Vitest Unit & Domain Suite (58 tests across 10 files)
 npm.cmd test
 
-# Playwright E2E Test Suite (22 tests on Desktop Chromium & Mobile)
+# 5. Playwright E2E Suite (26 tests across Chromium & Mobile Pixel 7)
 npm.cmd run test:e2e
 
-# Production Build
+# 6. Next.js Production Build
 npm.cmd run build
 ```

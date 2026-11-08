@@ -196,6 +196,20 @@ export function QuoteDecisionForm({
         {error && <div className="error-box">{error}</div>}
         {success && <div className="success-box">{success}</div>}
 
+        <div
+          style={{
+            border: "1px solid var(--gold)",
+            background: "var(--gold-dim)",
+            padding: "0.75rem 1rem",
+            marginBottom: "1.2rem",
+            fontSize: "0.82rem",
+            color: "var(--silver)",
+            lineHeight: 1.5
+          }}
+        >
+          <strong className="gold">Commercial Governance Notice:</strong> Public legal policy pages remain in pre-release draft review. Quotation sign-off binds this specific immutable scope snapshot ({termsVersion || "ENGINE//OS-TERMS-V1.0"}) and requires an authorized organization owner or administrator.
+        </div>
+
         <div style={{ marginBottom: "1.5rem" }}>
           <label style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", cursor: "pointer" }}>
             <input

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "@/lib/auth";
 import { type OrderState, canTransition, orderTransitions } from "@/lib/domain/states";
 
@@ -153,8 +154,16 @@ export async function initializeProjectFromOrderAction(
 
     const projectId = newProject.id;
 
+    // Use service role client when available to seed default requirements and outbox events reliably
+    const dbWriter =
+      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          })
+        : supabase;
+
     // Seed default standard project requirements
-    await supabase.from("project_requirements").insert([
+    await dbWriter.from("project_requirements").insert([
       {
         project_id: projectId,
         key: "brand_assets",
