@@ -1,4 +1,4 @@
-# ENGINE//OS
+# NOTREAL ENGINE — ENGINE//OS
 
 Production-oriented Next.js and Supabase foundation for NOTREAL ENGINE's digital service commerce and business operations platform.
 
