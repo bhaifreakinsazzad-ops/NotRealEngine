@@ -1,0 +1,2 @@
+import { services } from "@/lib/catalog";
+export default function Page() { return <div className="panel" style={{ marginTop: "1.5rem" }}><div className="panel-head"><h2>Canonical service registry</h2><span className="mono muted">12 locked offers</span></div><div className="panel-body">{services.map((service) => <div className="gate-row" key={service.id}><span>{service.name}</span><span className="status ready">ACTIVE</span></div>)}</div></div>; }

@@ -1,0 +1,3 @@
+import { MarketingShell } from "@/components/marketing-shell";
+import { forgotPassword } from "@/app/auth/actions";
+export default async function ForgotPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) { const { error } = await searchParams; return <MarketingShell><div className="auth-wrap"><div className="auth-panel"><h1>Reset access</h1><p>We will request a reset email without revealing whether an account exists.</p>{error && <div className="error-box">{error}</div>}<form action={forgotPassword}><div className="field"><label htmlFor="email">Email</label><input id="email" name="email" type="email" className="input" required /></div><button className="btn btn-primary">Request reset</button></form></div></div></MarketingShell>; }

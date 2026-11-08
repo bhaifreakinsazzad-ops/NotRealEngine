@@ -1,0 +1,3 @@
+import { notFound } from "next/navigation";
+import { requireUser } from "@/lib/auth";
+export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; const { supabase } = await requireUser(); const { data } = await supabase.from("projects").select("id,state,created_at,updated_at").eq("id", id).single(); if (!data) notFound(); return <div className="panel" style={{ marginTop: "1.5rem" }}><div className="panel-head"><h2>Project {data.id.slice(0,8)}</h2><span className="status ready">{data.state}</span></div><div className="panel-body"><p className="muted">Created {new Date(data.created_at).toLocaleDateString("en-BD")}</p></div></div>; }

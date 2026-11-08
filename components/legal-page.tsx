@@ -1,0 +1,2 @@
+import { MarketingShell } from "@/components/marketing-shell";
+export function LegalPage({ title }: { title: string }) { return <MarketingShell><section className="page-hero"><div className="shell"><h1>{title}</h1><div className="legal-draft"><strong>DRAFT — NOT APPROVED FOR PUBLICATION OR ACCEPTANCE.</strong><br />Founder and legal review are required before this page can become binding.</div><p>No final legal language has been invented in this repository.</p></div></section></MarketingShell>; }
