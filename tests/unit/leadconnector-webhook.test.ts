@@ -293,6 +293,123 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
       expect(mockRpc.mock.calls[0][1].p_provider_event_id).not.toBe(mockRpc.mock.calls[1][1].p_provider_event_id);
     });
 
+    it("generates distinct event IDs when two different contacts submit the exact same form template", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-alice", leadId: "lead-alice", reference: "GHL-FORM-ALICE", serviceId: null },
+        error: null
+      });
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-bob", leadId: "lead-bob", reference: "GHL-FORM-BOB", serviceId: null },
+        error: null
+      });
+
+      const res1 = await POST(
+        makeRequest({
+          body: JSON.stringify({
+            type: "FormSubmission",
+            name: "Alice Smith",
+            email: "alice@example.com",
+            form: { id: "template-shared-form-uuid" }
+          }),
+          headers: { "x-leadconnector-key": VALID_SECRET }
+        })
+      );
+
+      const res2 = await POST(
+        makeRequest({
+          body: JSON.stringify({
+            type: "FormSubmission",
+            name: "Bob Jones",
+            email: "bob@example.com",
+            form: { id: "template-shared-form-uuid" }
+          }),
+          headers: { "x-leadconnector-key": VALID_SECRET }
+        })
+      );
+
+      expect(res1.status).toBe(201);
+      expect(res2.status).toBe(201);
+      expect(mockRpc).toHaveBeenCalledTimes(2);
+
+      const eventIdAlice = mockRpc.mock.calls[0][1].p_provider_event_id;
+      const eventIdBob = mockRpc.mock.calls[1][1].p_provider_event_id;
+      expect(eventIdAlice).not.toBe(eventIdBob);
+      expect(eventIdAlice).toContain("alice@example.com");
+      expect(eventIdBob).toContain("bob@example.com");
+    });
+
+    it("returns HTTP 409 Conflict when a conflicting payload arrives with an identical event ID", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: {
+          duplicate: false,
+          conflict: true,
+          error: "conflicting_payload_for_event_id",
+          projectBriefId: "orig-brief-id",
+          leadId: "orig-lead-id",
+          reference: "GHL-FORM-ORIG"
+        },
+        error: null
+      });
+
+      const req = makeRequest({
+        body: JSON.stringify({
+          type: "FormSubmission",
+          submissionId: "fixed-sub-id",
+          name: "Attacker Trying Payload Overwrite",
+          email: "victim@example.com",
+          notes: "Modified payload"
+        }),
+        headers: { "x-leadconnector-key": VALID_SECRET }
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.status).toBe("conflict");
+      expect(data.error).toBe("conflicting_payload_for_event_id");
+      expect(data.briefId).toBe("orig-brief-id");
+    });
+
+    it("enforces data minimization by stripping sensitive credential keys and extraneous system data", async () => {
+      mockRpc.mockResolvedValueOnce({
+        data: { duplicate: false, projectBriefId: "brief-sanitized", leadId: "lead-sanitized", reference: "GHL-FORM-SAN", serviceId: null },
+        error: null
+      });
+
+      const req = makeRequest({
+        body: JSON.stringify({
+          type: "FormSubmission",
+          submissionId: "sub-clean-99",
+          name: "Security Conscious",
+          email: "security@company.com",
+          form: {
+            id: "form-contact",
+            fields: {
+              company_need: "Custom Web Application",
+              password: "secret_should_be_stripped",
+              user_session_token: "jwt_bearer_token_should_be_stripped"
+            }
+          },
+          customData: {
+            budget: "$15,000",
+            auth_cookie: "session_id_should_be_stripped"
+          }
+        }),
+        headers: { "x-leadconnector-key": VALID_SECRET }
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(201);
+      const [, args] = mockRpc.mock.calls[0];
+      const storedPayload = args.p_payload;
+
+      expect(storedPayload.form.fields.company_need).toBe("Custom Web Application");
+      expect(storedPayload.form.fields.password).toBeUndefined();
+      expect(storedPayload.form.fields.user_session_token).toBeUndefined();
+      expect(storedPayload.customData.budget).toBe("$15,000");
+      expect(storedPayload.customData.auth_cookie).toBeUndefined();
+    });
+
     it("rejects a rate-limited burst of authenticated requests from the same client", async () => {
       mockRpc.mockResolvedValue({
         data: { duplicate: false, projectBriefId: "b", leadId: "l", reference: "GHL-X", serviceId: null },

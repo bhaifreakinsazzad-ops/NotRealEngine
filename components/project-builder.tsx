@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { serviceById, services } from "@/lib/catalog";
 
@@ -69,7 +70,38 @@ export function ProjectBuilder({ initialServiceId = "" }: { initialServiceId?: s
     finally { setSubmitting(false); }
   }
 
-  if (reference) return <div className="success-box"><CheckCircle2 size={32} className="cyan" /><h2>Project brief received.</h2><p>Your reference is <strong className="mono">{reference}</strong>. This confirms secure intake only; it is not a quotation, order, payment, or delivery commitment.</p></div>;
+  if (reference)
+    return (
+      <div className="shell" style={{ padding: "3rem 1rem", maxWidth: "760px", margin: "0 auto" }}>
+        <div className="success-box" style={{ borderRadius: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: ".75rem", marginBottom: "1rem" }}>
+            <CheckCircle2 size={32} className="cyan" />
+            <h2 style={{ margin: 0, fontSize: "1.75rem" }}>Project brief received.</h2>
+          </div>
+          <p style={{ margin: "0 0 1.25rem", color: "var(--text)" }}>
+            Your reference is <strong className="mono cyan" style={{ fontSize: "1.1rem" }}>{reference}</strong>.
+            This confirms secure intake into NOTREAL ENGINE&apos;s queue.
+          </p>
+          <div style={{ background: "rgba(0,0,0,0.3)", padding: "1.25rem", border: "1px solid var(--line)", borderRadius: "4px", margin: "1.5rem 0" }}>
+            <h3 style={{ fontSize: "1rem", margin: "0 0 .75rem", color: "var(--cyan)", textTransform: "uppercase", letterSpacing: ".05em" }}>
+              What happens next:
+            </h3>
+            <ol style={{ margin: 0, paddingLeft: "1.25rem", lineHeight: 1.7, fontSize: ".9rem", color: "var(--muted)" }}>
+              <li><strong>Technical Qualification:</strong> Our engineering leads review your goal, scope, and requested capabilities within 24 business hours.</li>
+              <li><strong>Formal Quotation:</strong> We prepare a transparent, itemized quotation with milestones and revision schedule.</li>
+              <li><strong>Workspace Review:</strong> You can review, request adjustments, and authorize the quote directly in your client portal.</li>
+            </ol>
+          </div>
+          <p className="muted" style={{ fontSize: ".8rem", margin: "0 0 1.5rem" }}>
+            This confirms intake only; it is not a quotation, order, payment, or delivery commitment.
+          </p>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+            <Link href="/services" className="btn">Browse Services</Link>
+            <Link href="/dashboard" className="btn btn-primary">Client Workspace</Link>
+          </div>
+        </div>
+      </div>
+    );
 
   return (
     <div className="builder">

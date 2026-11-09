@@ -56,6 +56,7 @@ DECLARE
   v_existing_brief_id uuid;
   v_existing_lead_id uuid;
   v_existing_reference text;
+  v_existing_payload_hash text;
   v_chosen_service text := p_service_id;
   v_brief_id uuid;
   v_lead_id uuid;
@@ -85,14 +86,39 @@ BEGIN
   RETURNING id INTO v_event_id;
 
   IF v_event_id IS NULL THEN
-    SELECT we.project_brief_id, we.lead_id, pb.reference
-      INTO v_existing_brief_id, v_existing_lead_id, v_existing_reference
+    SELECT we.project_brief_id, we.lead_id, pb.reference, we.payload_hash
+      INTO v_existing_brief_id, v_existing_lead_id, v_existing_reference, v_existing_payload_hash
       FROM public.webhook_events we
       LEFT JOIN public.project_briefs pb ON pb.id = we.project_brief_id
      WHERE we.provider = 'leadconnector' AND we.provider_event_id = p_provider_event_id;
 
+    -- Detect payload conflict: if an event with the same ID arrives with a different payload hash
+    IF v_existing_payload_hash IS NOT NULL AND v_existing_payload_hash <> p_payload_hash THEN
+      INSERT INTO public.audit_logs(action, entity_type, entity_id, after_data)
+      VALUES (
+        'webhook.payload_conflict', 'webhook_event', p_provider_event_id,
+        jsonb_build_object(
+          'provider', 'leadconnector',
+          'providerEventId', p_provider_event_id,
+          'existingHash', v_existing_payload_hash,
+          'receivedHash', p_payload_hash,
+          'existingBriefId', v_existing_brief_id
+        )
+      );
+
+      RETURN jsonb_build_object(
+        'duplicate', false,
+        'conflict', true,
+        'error', 'conflicting_payload_for_event_id',
+        'projectBriefId', v_existing_brief_id,
+        'leadId', v_existing_lead_id,
+        'reference', v_existing_reference
+      );
+    END IF;
+
     RETURN jsonb_build_object(
       'duplicate', true,
+      'conflict', false,
       'projectBriefId', v_existing_brief_id,
       'leadId', v_existing_lead_id,
       'reference', v_existing_reference
