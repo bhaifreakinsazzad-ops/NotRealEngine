@@ -338,6 +338,58 @@ describe("LeadConnector Inbound Webhook Adapter (/api/webhooks/leadconnector)", 
       expect(eventIdBob).toContain("bob@example.com");
     });
 
+    it("computes identical semantic hash regardless of key order, whitespace, or transport retry metadata", async () => {
+      let firstHash = "";
+      let secondHash = "";
+
+      mockRpc.mockImplementation((name, args) => {
+        if (!firstHash) firstHash = args.p_payload_hash;
+        else secondHash = args.p_payload_hash;
+        return Promise.resolve({
+          data: { duplicate: false, projectBriefId: "b1", leadId: "l1", reference: "REF", serviceId: null },
+          error: null
+        });
+      });
+
+      // Request 1: standard ordering
+      const req1 = makeRequest({
+        body: JSON.stringify({
+          type: "FormSubmission",
+          submissionId: "semantic-sub-1",
+          name: "Semantic User",
+          email: "user@semantic.local",
+          phone: "+8801700000001",
+          notes: "Need web app",
+          customData: { alpha: "one", beta: "two" }
+        }),
+        headers: { "x-leadconnector-key": VALID_SECRET }
+      });
+      await POST(req1);
+
+      // Request 2: reverse key order, extra spaces in JSON, and transient retry transport metadata
+      const payload2WithReorderedKeys = `{
+        "customData": { "beta": "two", "alpha": "one" },
+        "attempt": 2,
+        "_delivery_attempt": "retry-1",
+        "notes": "Need web app",
+        "phone": "+8801700000001",
+        "email": "user@semantic.local",
+        "name": "Semantic User",
+        "submissionId": "semantic-sub-1",
+        "type": "FormSubmission"
+      }`;
+
+      const req2 = makeRequest({
+        body: payload2WithReorderedKeys,
+        headers: { "x-leadconnector-key": VALID_SECRET }
+      });
+      await POST(req2);
+
+      expect(firstHash).toBeTruthy();
+      expect(secondHash).toBeTruthy();
+      expect(firstHash).toBe(secondHash);
+    });
+
     it("returns HTTP 409 Conflict when a conflicting payload arrives with an identical event ID", async () => {
       mockRpc.mockResolvedValueOnce({
         data: {
