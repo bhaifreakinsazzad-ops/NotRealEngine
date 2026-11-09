@@ -61,6 +61,12 @@ const migration0006Audit = {
   objects: {}
 };
 
+const migration0007Audit = {
+  migrationFile: "supabase/migrations/202611080007_leadconnector_ingestion_integrity.sql",
+  allObjectsAppliedInRemoteDb: false,
+  objects: {}
+};
+
 const cleanupAudit = {
   trackedResources: {
     authUsers: [],
@@ -571,18 +577,55 @@ async function runStagingVerification() {
 
     migration0006Audit.allObjectsAppliedInRemoteDb = sysEnvTableApplied && approveTermsRpcApplied && setEnvRpcApplied;
 
+    // Probe Migration 0007 objects:
+    const { error: ingestRpcErr } = await adminClient.rpc("ingest_leadconnector_event", {
+      p_provider_event_id: "probe-staging-check",
+      p_payload_hash: "probe-hash",
+      p_reference: "probe-ref",
+      p_service_id: null,
+      p_contact_name: "probe",
+      p_contact_email: "probe@staging.local",
+      p_contact_phone: null,
+      p_organization_name: null,
+      p_payload: {},
+      p_attribution: {}
+    });
+    const ingestRpcApplied = Boolean(ingestRpcErr && !ingestRpcErr.message.includes("Could not find the function"));
+    migration0007Audit.objects.ingest_leadconnector_event_rpc = ingestRpcApplied
+      ? "APPLIED"
+      : "PENDING_FOUNDER_SQL_0007 (service-role atomic ingestion RPC)";
+
+    const { error: webhookColsErr } = await adminClient.from("webhook_events").select("project_brief_id, lead_id").limit(1);
+    const webhookColsApplied = !webhookColsErr;
+    migration0007Audit.objects.webhook_events_fk_columns = webhookColsApplied
+      ? "APPLIED"
+      : "PENDING_FOUNDER_SQL_0007 (foreign keys linking project_brief_id and lead_id)";
+
+    migration0007Audit.allObjectsAppliedInRemoteDb = ingestRpcApplied && webhookColsApplied;
+
+    const status0005 = migration0005Audit.allObjectsAppliedInRemoteDb ? "PASS" : "FAIL";
+    const status0006 = migration0006Audit.allObjectsAppliedInRemoteDb ? "PASS" : "BLOCKED";
+    const status0007 = migration0007Audit.allObjectsAppliedInRemoteDb ? "PASS" : "BLOCKED";
+
     recordResult(
       "MigrationAudit",
       "Remote Database Migration 0005 Audit",
-      migration0005Audit.allObjectsAppliedInRemoteDb ? "PASS" : "PASS",
-      `Applied: ${migration0005Audit.allObjectsAppliedInRemoteDb ? "ALL 3" : "Partial (see audit log)"}`
+      status0005,
+      `Applied: ${migration0005Audit.allObjectsAppliedInRemoteDb ? "ALL 3 (verified live)" : "Partial (missing required objects)"}`
     );
 
     recordResult(
       "MigrationAudit",
       "Remote Database Migration 0006 Audit",
-      migration0006Audit.allObjectsAppliedInRemoteDb ? "PASS" : "PASS",
-      `Environment & Terms Governance: ${migration0006Audit.allObjectsAppliedInRemoteDb ? "ALL APPLIED" : "Script ready in supabase/migrations/202611080006_v13_terms_environment_and_founder_governance.sql"}`
+      status0006,
+      `Environment & Terms Governance: ${migration0006Audit.allObjectsAppliedInRemoteDb ? "ALL APPLIED (verified live)" : "BLOCKED (pending founder execution of supabase/migrations/APPLY_0006_AND_0007.sql in Supabase SQL Editor)"}`
+    );
+
+    recordResult(
+      "MigrationAudit",
+      "Remote Database Migration 0007 Audit",
+      status0007,
+      `LeadConnector Ingestion Integrity: ${migration0007Audit.allObjectsAppliedInRemoteDb ? "ALL APPLIED (verified live)" : "BLOCKED (pending founder execution of supabase/migrations/APPLY_0006_AND_0007.sql in Supabase SQL Editor)"}`
     );
 
     // 6.5 Lead Intake & Admin Lead Qualification
@@ -1374,6 +1417,7 @@ function printSummaryAndExit() {
     testExecutionSummary: { passed, failed, blocked, skipped },
     migration0005RemoteAudit: migration0005Audit,
     migration0006RemoteAudit: migration0006Audit,
+    migration0007RemoteAudit: migration0007Audit,
     testEnvironmentCleanupResult: cleanupAudit,
     results
   };

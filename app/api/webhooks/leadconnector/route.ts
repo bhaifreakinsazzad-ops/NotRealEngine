@@ -53,6 +53,16 @@ interface LeadConnectorPayload {
   type?: string;
   event?: string;
   id?: string;
+  submissionId?: string;
+  submission_id?: string;
+  formSubmissionId?: string;
+  workflowExecutionId?: string;
+  executionId?: string;
+  workflow?: {
+    id?: string;
+    executionId?: string;
+    name?: string;
+  };
   contact_id?: string;
   name?: string;
   first_name?: string;
@@ -62,6 +72,7 @@ interface LeadConnectorPayload {
   company_name?: string;
   organization_name?: string;
   service_id?: string;
+  appointmentId?: string;
   appointment?: {
     id?: string;
     startTime?: string;
@@ -76,9 +87,15 @@ interface LeadConnectorPayload {
     formName?: string;
     fields?: Record<string, unknown>;
   };
+  messageId?: string;
+  chatId?: string;
   message?: string;
   notes?: string;
   customData?: Record<string, unknown>;
+  submittedAt?: string;
+  timestamp?: string;
+  dateAdded?: string;
+  createdAt?: string;
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;
@@ -87,11 +104,119 @@ interface LeadConnectorPayload {
   [key: string]: unknown;
 }
 
+/**
+ * Derives a true unique event/submission identifier.
+ * Prevents using a static form template ID or contact ID alone as event seed,
+ * which would incorrectly cause distinct user inquiries on the same form to be discarded.
+ */
+function deriveProviderEventId(
+  body: LeadConnectorPayload,
+  eventType: string,
+  contactKey: string
+): { providerEventId: string; providerEventSeed: string } {
+  // 1. Explicit appointment ID
+  const apptId = body.appointment?.id || body.appointmentId;
+  if (apptId) {
+    const seed = String(apptId);
+    return { providerEventId: `Appointment:${seed}`, providerEventSeed: seed };
+  }
+
+  // 2. Explicit chat / message ID
+  const msgId = body.messageId || body.chatId;
+  if (msgId) {
+    const seed = String(msgId);
+    return { providerEventId: `ChatMessage:${seed}`, providerEventSeed: seed };
+  }
+
+  // 3. Explicit unique form submission or workflow execution ID
+  const explicitSubmissionId =
+    body.submissionId ||
+    body.submission_id ||
+    body.formSubmissionId ||
+    body.workflow?.executionId ||
+    body.workflowExecutionId ||
+    body.executionId;
+  if (explicitSubmissionId) {
+    const seed = String(explicitSubmissionId);
+    return { providerEventId: `FormSubmission:${seed}`, providerEventSeed: seed };
+  }
+
+  // 4. Top-level event notification ID (if distinct from static form template or contact ID)
+  if (
+    body.id &&
+    body.id !== body.form?.id &&
+    body.id !== body.form?.formId &&
+    body.id !== body.contact_id
+  ) {
+    const seed = String(body.id);
+    return { providerEventId: `${eventType}:${seed}`, providerEventSeed: seed };
+  }
+
+  // 5. Fallback for form submissions without explicit submission UUID:
+  // Must qualify with contact identity and timestamp (or content digest) so that:
+  // - Two distinct visitors submitting the same form template do NOT collide.
+  // - The same visitor submitting multiple distinct inquiries is not discarded.
+  // - Network delivery retries of the identical submission are recognized as duplicates.
+  const formTemplateId = body.form?.id || body.form?.formId || "general_form";
+  const submissionTimestamp = body.submittedAt || body.timestamp || body.dateAdded || body.createdAt;
+  if (submissionTimestamp) {
+    const seed = `${formTemplateId}:${contactKey}:${submissionTimestamp}`;
+    return { providerEventId: `FormSubmission:${seed}`, providerEventSeed: seed };
+  }
+
+  // Content fingerprint fallback when provider sends no timestamp
+  const contentDigest = crypto
+    .createHash("sha256")
+    .update(`${contactKey}|${JSON.stringify(body.form?.fields || {})}|${body.notes || body.message || ""}`)
+    .digest("hex")
+    .slice(0, 16);
+  const seed = `${formTemplateId}:${contactKey}:${contentDigest}`;
+  return { providerEventId: `${eventType}:${seed}`, providerEventSeed: seed };
+}
+
+/**
+ * Data minimization: sanitize form fields, discarding potential auth tokens or credential keys.
+ */
+function sanitizeFormFields(fields: unknown): Record<string, unknown> | undefined {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return undefined;
+  const sanitized: Record<string, unknown> = {};
+  const SENSITIVE_REGEX = /(password|passphrase|token|secret|cvv|credit_card|auth|session)/i;
+  for (const [k, v] of Object.entries(fields as Record<string, unknown>)) {
+    if (SENSITIVE_REGEX.test(k)) continue;
+    if (typeof v === "string") {
+      sanitized[k] = v.slice(0, 1000);
+    } else if (typeof v === "number" || typeof v === "boolean") {
+      sanitized[k] = v;
+    } else if (Array.isArray(v)) {
+      sanitized[k] = v.slice(0, 10).map((item) => (typeof item === "string" ? item.slice(0, 500) : item));
+    }
+  }
+  return sanitized;
+}
+
+/**
+ * Data minimization: sanitize custom data, extracting only relevant qualification properties.
+ */
+function sanitizeCustomData(custom: unknown): Record<string, unknown> | undefined {
+  if (!custom || typeof custom !== "object" || Array.isArray(custom)) return undefined;
+  const sanitized: Record<string, unknown> = {};
+  const SENSITIVE_REGEX = /(password|passphrase|token|secret|cookie|session|jwt)/i;
+  for (const [k, v] of Object.entries(custom as Record<string, unknown>)) {
+    if (SENSITIVE_REGEX.test(k)) continue;
+    if (typeof v === "string") {
+      sanitized[k] = v.slice(0, 1000);
+    } else if (typeof v === "number" || typeof v === "boolean") {
+      sanitized[k] = v;
+    }
+  }
+  return sanitized;
+}
+
 export async function GET(request: NextRequest) {
   return NextResponse.json({
     status: "active",
     adapter: "ENGINE//OS LeadConnector Inbound Ingestion Webhook",
-    version: "V16.0",
+    version: "V18.0",
     supportedEvents: ["Appointment", "FormSubmission", "ContactCreate", "InboundMessage"],
     configurationInstructions: {
       webhookUrl: `${request.nextUrl.origin}/api/webhooks/leadconnector`,
@@ -103,10 +228,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // 1. Abuse control (best-effort, IP-keyed) — runs before auth so a flood of invalid
-    // credential attempts is also throttled, not just successful requests.
+    // requests from a single client is throttled early without computing constantTimeEqual.
     const clientIp = extractClientIp(request.headers);
     if (isRateLimited(clientIp)) {
-      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+      return NextResponse.json(
+        { error: "too_many_requests: rate limit exceeded" },
+        { status: 429 }
+      );
     }
 
     // 2. Mandatory, fail-closed authentication. No environment-based bypass: if the secret
@@ -151,7 +279,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Normalize Event Type and Source
-    const eventType = body.type || body.event || (body.appointment ? "Appointment" : body.form ? "FormSubmission" : "ContactCreate");
+    const eventType =
+      body.type ||
+      body.event ||
+      (body.appointment ? "Appointment" : body.form ? "FormSubmission" : "ContactCreate");
     let normalizedSource = "leadconnector_general";
     if (eventType.toLowerCase().includes("appoint") || body.appointment) {
       normalizedSource = "leadconnector_booking";
@@ -187,15 +318,8 @@ export async function POST(request: NextRequest) {
       (contactName ? `${contactName}'s Team` : "Direct Client");
 
     // 7. Event Identity for Idempotency
-    // Prefer a provider-supplied identifier for the specific sub-event (appointment, form
-    // submission, or generic event/contact id). Only fall back to a random id -- which means
-    // "never deduplicate this" -- when the provider sent nothing stable to key on; that is
-    // strictly safer than merging it with an unrelated enquiry.
-    const providerEventSeed =
-      body.appointment?.id || body.form?.id || body.form?.formId || body.id || body.contact_id || null;
-    const providerEventId = providerEventSeed
-      ? `${eventType}:${providerEventSeed}`
-      : `${eventType}:${crypto.randomUUID()}`;
+    const contactKey = contactEmail || contactPhone;
+    const { providerEventId, providerEventSeed } = deriveProviderEventId(body, eventType, contactKey);
     const payloadHash = crypto.createHash("sha256").update(rawBody).digest("hex");
 
     // 8. Canonical Service Resolution
@@ -206,19 +330,18 @@ export async function POST(request: NextRequest) {
     const requestedServiceId = typeof body.service_id === "string" ? body.service_id : null;
 
     // 9. Generate Traceable Provider Reference
-    const eventCode = normalizedSource === "leadconnector_booking"
-      ? "BOOK"
-      : normalizedSource === "leadconnector_onboarding"
-      ? "FORM"
-      : normalizedSource === "leadconnector_chat"
-      ? "CHAT"
-      : "GHL";
+    const eventCode =
+      normalizedSource === "leadconnector_booking"
+        ? "BOOK"
+        : normalizedSource === "leadconnector_onboarding"
+        ? "FORM"
+        : normalizedSource === "leadconnector_chat"
+        ? "CHAT"
+        : "GHL";
     const randomHex = crypto.randomBytes(3).toString("hex").toUpperCase();
     const reference = `GHL-${eventCode}-${randomHex}`;
 
-    // 10. Atomic, Idempotent Ingestion via Supabase RPC
-    // A single SECURITY DEFINER transaction: idempotency check, project_brief insert, lead
-    // insert, and audit log all succeed together or none of them do -- no orphaned briefs.
+    // 10. Atomic, Idempotent Ingestion via Supabase RPC with Data Minimization
     const supabase = getServiceRoleClient();
     const { data: result, error: rpcErr } = await supabase.rpc("ingest_leadconnector_event", {
       p_provider_event_id: providerEventId,
@@ -231,11 +354,26 @@ export async function POST(request: NextRequest) {
       p_organization_name: orgName,
       p_payload: {
         rawEvent: eventType,
-        appointment: body.appointment,
-        form: body.form,
-        notes: body.notes || body.message,
-        customData: body.customData,
-        ingestedVia: "leadconnector_webhook_v16"
+        appointment: body.appointment
+          ? {
+              id: body.appointment.id,
+              startTime: body.appointment.startTime,
+              endTime: body.appointment.endTime,
+              title: body.appointment.title,
+              calendarName: body.appointment.calendarName,
+              address: body.appointment.address
+            }
+          : undefined,
+        form: body.form
+          ? {
+              formId: body.form.id || body.form.formId,
+              formName: body.form.formName,
+              fields: sanitizeFormFields(body.form.fields)
+            }
+          : undefined,
+        notes: (body.notes || body.message || "").slice(0, 2000),
+        customData: sanitizeCustomData(body.customData),
+        ingestedVia: "leadconnector_webhook_v18"
       },
       p_attribution: {
         source: normalizedSource,
@@ -252,6 +390,22 @@ export async function POST(request: NextRequest) {
     if (rpcErr || !result) {
       console.error("[LeadConnector Webhook] Ingestion RPC failed:", rpcErr?.code, rpcErr?.message);
       return NextResponse.json({ error: "database_error" }, { status: 500 });
+    }
+
+    if (result.conflict) {
+      console.warn("[LeadConnector Webhook] Conflicting payload for existing event ID:", providerEventId);
+      return NextResponse.json(
+        {
+          ok: false,
+          status: "conflict",
+          error: "conflicting_payload_for_event_id",
+          message: "An event with this provider ID was previously recorded with different payload content.",
+          reference: result.reference,
+          briefId: result.projectBriefId,
+          leadId: result.leadId
+        },
+        { status: 409 }
+      );
     }
 
     if (result.duplicate) {
