@@ -161,20 +161,27 @@ async function runStagingVerification() {
 
   // --- 0. TARGET ENVIRONMENT SAFETY GUARD ---
   console.log(bold("--- 0. STAGING ENVIRONMENT SAFETY GUARD ---"));
-  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF)) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const playwrightBaseUrl = process.env.PLAYWRIGHT_BASE_URL || appUrl;
+  const isProductionTarget =
+    appUrl.includes("app.notrealengine.online") ||
+    playwrightBaseUrl.includes("app.notrealengine.online");
+
+  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF) || isProductionTarget) {
     recordResult(
       "SafetyGuard",
       "Staging Target Project Ref Verification",
       "FAIL",
-      `Refusing to provision synthetic test users on non-staging target (${supabaseUrl}, ENGINE_OS_ENV=${engineEnv})`
+      `CRITICAL SAFETY HALT: Refusing to provision synthetic test users on production target (${supabaseUrl}, appUrl=${appUrl}, ENGINE_OS_ENV=${engineEnv})`
     );
     printSummaryAndExit();
+    return;
   } else {
     recordResult(
       "SafetyGuard",
       "Staging Target Project Ref Verification",
       "PASS",
-      `Verified approved staging project ref (${APPROVED_STAGING_PROJECT_REF})`
+      `Verified approved staging project ref (${APPROVED_STAGING_PROJECT_REF}), isolated from production domains`
     );
   }
 
@@ -1235,23 +1242,10 @@ async function runStagingVerification() {
       cleanupAudit.preservedImmutableRecords.retainedDesignatedStaffUsers = 1;
     }
 
-    // Sweep any legacy ephemeral @staging.notrealengine.local users from older test versions
-    const { data: allAuthUsers } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 200 });
-    const legacyUsers = (allAuthUsers?.users ?? []).filter(
-      (u) =>
-        u.email?.endsWith("@staging.notrealengine.local") &&
-        u.email !== DESIGNATED_SIGNATORY_EMAIL &&
-        u.email !== DESIGNATED_STAFF_EMAIL &&
-        !cleanupAudit.trackedResources.authUsers.includes(u.id)
-    );
-    if (legacyUsers.length > 0) {
-      const { data: allAcceptances } = await adminClient.from("quote_acceptances").select("accepted_by");
-      const activeSigIds = new Set(allAcceptances?.map((a) => a.accepted_by));
-      for (const u of legacyUsers) {
-        if (!activeSigIds.has(u.id)) {
-          await adminClient.auth.admin.deleteUser(u.id);
-        }
-      }
+    // Run-scoped residual check (Directive V20.0 Section 5: avoid broad domain sweeps, verify 0 residuals)
+    const residualEphemeralUsers = cleanupAudit.trackedResources.authUsers.length - cleanupAudit.deletedResources.authUsers;
+    if (residualEphemeralUsers > 0) {
+      cleanupAudit.unexpectedCleanupErrors.push(`Residual uncleaned ephemeral users detected: ${residualEphemeralUsers}`);
     }
 
     const { count: totalAuditLogs } = await adminClient
@@ -1316,7 +1310,6 @@ async function runStagingVerification() {
   // LAYER D: HOSTED BROWSER ACCEPTANCE GUIDANCE
   // =============================================================================
   console.log("\n" + bold("--- LAYER D: HOSTED BROWSER ACCEPTANCE GUIDANCE ---"));
-  const playwrightBaseUrl = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000";
   const pointsToProduction = playwrightBaseUrl.includes("notrealengine.online");
   recordResult(
     "HostedAcceptance",
@@ -1351,6 +1344,9 @@ function printSummaryAndExit() {
   console.log(bold("=========================================================="));
   console.log(
     `  Deleted Ephemeral Users  : ${cleanupAudit.deletedResources.authUsers}/${cleanupAudit.trackedResources.authUsers.length}`
+  );
+  console.log(
+    `  Residual Ephemeral Users : ${cleanupAudit.trackedResources.authUsers.length - cleanupAudit.deletedResources.authUsers} (Target: 0)`
   );
   console.log(
     `  Designated Signatory     : ${cleanupAudit.preservedImmutableRecords.retainedDesignatedSignatoryUsers} preserved (${DESIGNATED_SIGNATORY_EMAIL})`

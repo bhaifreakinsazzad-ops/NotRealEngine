@@ -1,7 +1,7 @@
 # ENGINE//OS — Project Status & Handoff
 **Company:** NOTREAL ENGINE, LLC  
 **Snapshot:** 2026-11-09 (Bangladesh time)  
-**Status:** ACTIVE EXECUTION (Directive V19.0 — Critical Verification Safety & Release A Completion)  
+**Status:** ACTIVE EXECUTION (Directive V20.0 — Final Integration, Database Activation, Protected Staging & Release A Completion)  
 **Project:** https://github.com/bhaifreakinsazzad-ops/NotRealEngine  
 **Local working folder:** E:\Agentic Work Station\Web Applications\NotRealEngine  
 **Active Working Branch:** `feature/v18-release-a-finalization`
@@ -23,14 +23,21 @@ ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website an
   - **Semantic Payload Hashing for LeadConnector:** Implemented deterministic, key-sorted JSON canonicalization (`computeSemanticPayloadHash`) that filters transient transport metadata (e.g. `attempt`, `retryCount`), completely preventing false HTTP 409 Conflicts from webhook delivery retries or key reordering.
   - **Layered Verification Architecture:** Re-architected `verify:staging` into 4 distinct verification layers (Layer A: Read-Only Audit; Layer B: Controlled Database Fixtures with Staging Safeguards; Layer C: External Provider Status; Layer D: Hosted Browser Acceptance Guidance).
   - **Regression Test Suite:** Added 11 new automated regression tests (97/97 tests passing across 12 suites).
+- **Gemini Master Directive V20.0 Execution (Final Integration, Database Activation & Protected Staging):**
+  - **Git History Reconciliation:** Reconciled `origin/main` (commit `26dd3b0`) with `feature/v18-release-a-finalization` cleanly with zero merge conflicts.
+  - **Standalone Migration Audit CLI (`npm run audit:migrations`):** Created dedicated CLI tool `scripts/audit-migrations.mjs` executing strictly read-only inspection and writing `docs/migration-audit-report.json`.
+  - **Two-Level Verification Truth Architecture:** Clearly demarcated Level 1 (API Schema Verification via PostgREST OpenAPI) from Level 2 (PostgreSQL Catalog Verification via direct TCP). Accurately reports Level 2 as `BLOCKED (Requires direct PostgreSQL port 5432)` when direct database credentials are not configured, completely eliminating false catalog inspection claims.
+  - **Production Safety Hardening in Staging Runner:** Injected fail-closed check in `scripts/verify-staging.mjs` preventing any synthetic test execution if `NEXT_PUBLIC_APP_URL` or `PLAYWRIGHT_BASE_URL` targets `app.notrealengine.online`.
+  - **Run-Scoped User Cleanup:** Replaced broad email domain sweeps with run-scoped tracking (`cleanupAudit.trackedResources.authUsers`), proving 0 residual test users.
+  - **Expanded Test Coverage:** Added unit tests verifying two-level audit distinction and zero commercial side effects (99/99 Vitest tests passing across 12 suites).
 
 ## 3. Current verified repository and deployment
 | Area | Verified snapshot |
 |---|---|
-| GitHub main | **572c4501c16964449479dfd8d089b38185027ab9** (synced) |
-| Active feature branch | `feature/v18-release-a-finalization` |
+| GitHub main | **26dd3b0155202aa69ff73666953af2ba58396751** (PR #5 merged) |
+| Active feature branch | `feature/v18-release-a-finalization` (reconciled with main) |
 | Vercel project | **notrealengine** |
-| Latest Vercel deployment | **dpl_E6btjEpgWVHD46qMcBjJLEP3WLW4** — READY, **production** target, commit f6e19d0 |
+| Latest Vercel deployment | **dpl_E6btjEpgWVHD46qMcBjJLEP3WLW4** — READY, **production** target |
 | Public aliases | https://app.notrealengine.online and https://notrealengine.vercel.app |
 | Supabase staging project reference | **yamwmfgqqjwlfcjjkwzl** |
 | Remote database migration status | **0001–0005 APPLIED & VERIFIED**; **0006 & 0007 READY in APPLY_0006_AND_0007.sql** |
@@ -38,9 +45,10 @@ ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website an
 ## 4. Implementation and quality evidence
 - **TypeScript Typecheck:** PASS (0 errors).
 - **ESLint:** PASS (0 errors, 0 warnings; Next.js 16 Core Web Vitals & TypeScript rules).
-- **Unit & Regression Suite:** PASS (97/97 Vitest tests across 12 test suites).
+- **Unit & Regression Suite:** PASS (99/99 Vitest tests across 12 test suites).
 - **Next.js Production Build:** PASS (37/37 routes compiled).
-- **Staging Verification Suite:** 65 PASS, 3 BLOCKED (truthful signal: blocked solely on unapplied 0006/0007 migrations and unconfigured local webhook secret), 1 SKIPPED (live GHL delivery).
+- **Migration Audit CLI (`npm run audit:migrations`):** Level 1 API Schema evaluated, Level 2 Catalog truthfully reported as BLOCKED without port 5432, 0 mutating calls.
+- **Staging Verification Suite (`npm run verify:staging`):** 65 PASS, 3 BLOCKED (truthful signal: blocked solely on unapplied 0006/0007 migrations and unconfigured local webhook secret), 1 SKIPPED (live GHL delivery).
 - **Playwright Browser E2E:** 27 PASS, 1 SKIPPED (Chromium + Mobile Pixel 7).
 
 ## 5. Migration-Readiness Record (APPLY_0006_AND_0007.sql)
@@ -51,7 +59,7 @@ ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website an
 - **Idempotency:** Guarded with `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, and `DROP POLICY IF EXISTS`.
 - **Fail-Closed Default:** Seeds `public.system_environment` with `('current', 'production', false)` so runtime strictly rejects synthetic transactions until explicitly toggled by super_admin in staging.
 - **Permissions:** `ingest_leadconnector_event` restricted strictly to `service_role` (revoked from `public`, `anon`, `authenticated`).
-- **Post-Application Verification:** Run `npm run verify:staging` to observe all migration audit checks transition immediately from `BLOCKED` to `PASS`.
+- **Post-Application Verification:** Run `npm run audit:migrations` followed by `npm run verify:staging` to observe all migration audit checks transition immediately from `BLOCKED` to `PASS`.
 
 ## 6. Outstanding founder-only actions (Priority Order)
 1. **Apply Migrations 0006 & 0007 in Supabase SQL Editor:** Paste and run `supabase/migrations/APPLY_0006_AND_0007.sql` in project `yamwmfgqqjwlfcjjkwzl`.

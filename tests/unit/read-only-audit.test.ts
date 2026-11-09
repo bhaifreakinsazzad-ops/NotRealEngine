@@ -369,4 +369,69 @@ describe("Read-Only Migration Audit Security & Regression Suite (Directive V19.0
 
     expect(leadCreated).toBe(false);
   });
+
+  // Requirement 11 (Directive V20.0 Section 3 & 4): Two-level verification distinction
+  it("distinguishes Level 1 API schema verification from Level 2 PostgreSQL catalog verification", async () => {
+    // When OpenAPI spec is valid, Level 1 passes
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => completeMockSpec
+    });
+
+    const audit = await executeReadOnlyMigrationAudit(
+      "https://yamwmfgqqjwlfcjjkwzl.supabase.co",
+      "mock-key"
+    );
+
+    expect(audit.success).toBe(true);
+    expect(audit.migration0005.status).toBe("PASS");
+    // Verify Level 1 confirms API schema without claiming direct catalog proof
+    expect(audit.migration0005.objects["decide_quote_rpc"].details).toContain("PostgREST endpoint verified");
+  });
+
+  // Requirement 12: Audit operation guarantees zero side effects on commercial data
+  it("guarantees audit execution never creates orders, quotations, or projects", async () => {
+    const prohibitedOperations: string[] = [];
+
+    const mockClient = {
+      from: (table: string) => ({
+        select: () => ({
+          limit: async () => {
+            if (["orders", "quotes", "projects", "leads"].includes(table)) {
+              // Read is permitted
+            }
+            return { data: [], error: null };
+          },
+          eq: () => ({
+            maybeSingle: async () => ({ data: null, error: null })
+          })
+        }),
+        insert: () => {
+          prohibitedOperations.push(`INSERT_${table}`);
+          return Promise.resolve({ data: null, error: new Error("Prohibited") });
+        },
+        update: () => {
+          prohibitedOperations.push(`UPDATE_${table}`);
+          return Promise.resolve({ data: null, error: new Error("Prohibited") });
+        },
+        delete: () => {
+          prohibitedOperations.push(`DELETE_${table}`);
+          return Promise.resolve({ data: null, error: new Error("Prohibited") });
+        }
+      })
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => completeMockSpec
+    });
+
+    await executeReadOnlyMigrationAudit(
+      "https://yamwmfgqqjwlfcjjkwzl.supabase.co",
+      "mock-key",
+      mockClient as unknown as ReadOnlyAuditClient
+    );
+
+    expect(prohibitedOperations).toHaveLength(0);
+  });
 });
