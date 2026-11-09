@@ -451,7 +451,7 @@ export async function executePostgresCatalogAudit(
       const { Client } = pgModule.default || pgModule;
       const pgClient = new Client({
         connectionString: clientOrUrl,
-        ssl: { rejectUnauthorized: false },
+        ssl: process.env.PG_SSL_ROOT_CERT ? { rejectUnauthorized: true, ca: (await import("fs")).readFileSync(process.env.PG_SSL_ROOT_CERT, "utf-8") } : { rejectUnauthorized: true },
         statement_timeout: 5000,
         connectionTimeoutMillis: 5000
       });

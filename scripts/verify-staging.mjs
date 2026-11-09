@@ -152,38 +152,162 @@ async function runStagingVerification() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || `https://${APPROVED_STAGING_PROJECT_REF}.supabase.co`;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const engineEnv = process.env.ENGINE_OS_ENV || "staging";
+  const engineEnv = process.env.ENGINE_OS_ENV;
 
   console.log(`Target Staging Host : ${cyan(supabaseUrl)}`);
-  console.log(`Environment Mode    : ${cyan(engineEnv)}`);
+  console.log(`Environment Mode    : ${engineEnv ? cyan(engineEnv) : red("UNDEFINED (Fail-Closed)")}`);
   console.log(`Anon Key Configured : ${anonKey ? green("YES (Present)") : yellow("NO (Missing)")}`);
   console.log(`Service Key Config  : ${serviceKey ? green("YES (Present)") : yellow("NO (Missing)")}\n`);
 
   // --- 0. TARGET ENVIRONMENT SAFETY GUARD ---
   console.log(bold("--- 0. STAGING ENVIRONMENT SAFETY GUARD ---"));
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const playwrightBaseUrl = process.env.PLAYWRIGHT_BASE_URL || appUrl;
-  const isProductionTarget =
-    appUrl.includes("app.notrealengine.online") ||
-    playwrightBaseUrl.includes("app.notrealengine.online");
 
-  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF) || isProductionTarget) {
+  // Guard 0.1: Explicit ENGINE_OS_ENV check (Directive V21.0 Section 5: fail closed on missing/ambiguous env)
+  if (!engineEnv || engineEnv !== "staging") {
+    recordResult(
+      "SafetyGuard",
+      "Staging Environment Variable (ENGINE_OS_ENV)",
+      "FAIL",
+      `CRITICAL SAFETY HALT: ENGINE_OS_ENV must be explicitly set to 'staging' (received: ${engineEnv ? `'${engineEnv}'` : "UNDEFINED"}). Fails closed to protect production.`
+    );
+    printSummaryAndExit();
+    return;
+  }
+
+  // Guard 0.2: Supabase URL and Project Ref Parsing
+  let parsedSupabaseUrl;
+  try {
+    parsedSupabaseUrl = new URL(supabaseUrl);
+  } catch {
+    recordResult(
+      "SafetyGuard",
+      "Supabase URL Validation",
+      "FAIL",
+      `CRITICAL SAFETY HALT: Malformed NEXT_PUBLIC_SUPABASE_URL: ${supabaseUrl}`
+    );
+    printSummaryAndExit();
+    return;
+  }
+
+  if (parsedSupabaseUrl.protocol !== "https:") {
+    recordResult(
+      "SafetyGuard",
+      "Supabase URL Protocol Validation",
+      "FAIL",
+      `CRITICAL SAFETY HALT: Insecure or invalid protocol for Supabase URL (${parsedSupabaseUrl.protocol})`
+    );
+    printSummaryAndExit();
+    return;
+  }
+
+  const resolvedProjectRef = parsedSupabaseUrl.hostname.split(".")[0];
+  if (resolvedProjectRef !== APPROVED_STAGING_PROJECT_REF) {
     recordResult(
       "SafetyGuard",
       "Staging Target Project Ref Verification",
       "FAIL",
-      `CRITICAL SAFETY HALT: Refusing to provision synthetic test users on production target (${supabaseUrl}, appUrl=${appUrl}, ENGINE_OS_ENV=${engineEnv})`
+      `CRITICAL SAFETY HALT: Resolved project ref '${resolvedProjectRef}' does not match authorized staging ref '${APPROVED_STAGING_PROJECT_REF}'`
     );
     printSummaryAndExit();
     return;
-  } else {
+  }
+
+  // Guard 0.3: URL origin and Production Hostname Lockdown
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const playwrightBaseUrl = process.env.PLAYWRIGHT_BASE_URL || appUrl;
+
+  let parsedAppUrl;
+  let parsedPlaywrightUrl;
+  try {
+    parsedAppUrl = new URL(appUrl);
+    parsedPlaywrightUrl = new URL(playwrightBaseUrl);
+  } catch {
     recordResult(
       "SafetyGuard",
-      "Staging Target Project Ref Verification",
-      "PASS",
-      `Verified approved staging project ref (${APPROVED_STAGING_PROJECT_REF}), isolated from production domains`
+      "Browser Test URL Validation",
+      "FAIL",
+      `CRITICAL SAFETY HALT: Malformed URL in NEXT_PUBLIC_APP_URL (${appUrl}) or PLAYWRIGHT_BASE_URL (${playwrightBaseUrl})`
     );
+    printSummaryAndExit();
+    return;
   }
+
+  const PROHIBITED_HOSTS = new Set([
+    "app.notrealengine.online",
+    "notrealengine.online",
+    "www.notrealengine.online",
+    "notrealengine.vercel.app" // Production deployment alias
+  ]);
+
+  if (
+    PROHIBITED_HOSTS.has(parsedAppUrl.hostname.toLowerCase()) ||
+    PROHIBITED_HOSTS.has(parsedPlaywrightUrl.hostname.toLowerCase())
+  ) {
+    recordResult(
+      "SafetyGuard",
+      "Production Host Lockdown",
+      "FAIL",
+      `CRITICAL SAFETY HALT: Refusing to run tests against known production host (app: ${parsedAppUrl.hostname}, playwright: ${parsedPlaywrightUrl.hostname})`
+    );
+    printSummaryAndExit();
+    return;
+  }
+
+  const isLocalOrigin = (host) => host === "localhost" || host === "127.0.0.1" || host === "::1";
+  const authorizedStagingOrigins = (process.env.APPROVED_STAGING_HOSTS || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  const isAppAuthorized =
+    isLocalOrigin(parsedAppUrl.hostname) || authorizedStagingOrigins.includes(parsedAppUrl.hostname.toLowerCase());
+  const isPlaywrightAuthorized =
+    isLocalOrigin(parsedPlaywrightUrl.hostname) ||
+    authorizedStagingOrigins.includes(parsedPlaywrightUrl.hostname.toLowerCase());
+
+  if (!isAppAuthorized || !isPlaywrightAuthorized) {
+    recordResult(
+      "SafetyGuard",
+      "Authorized Staging Origin Verification",
+      "FAIL",
+      `CRITICAL SAFETY HALT: Host '${parsedAppUrl.hostname}' or '${parsedPlaywrightUrl.hostname}' is not in authorized staging allowlist (localhost, 127.0.0.1, APPROVED_STAGING_HOSTS)`
+    );
+    printSummaryAndExit();
+    return;
+  }
+
+  // Guard 0.4: Deliberate Mutation Authorization Gate
+  const allowMutation =
+    process.argv.includes("--allow-mutation") || process.env.ALLOW_STAGING_MUTATION === "true";
+
+  if (!allowMutation) {
+    recordResult(
+      "SafetyGuard",
+      "Deliberate Mutation Authorization Gate",
+      "BLOCKED",
+      "State-mutating tests require explicit authorization via ALLOW_STAGING_MUTATION=true or --allow-mutation CLI flag."
+    );
+    console.log(
+      yellow(
+        "\n[NOTICE] State-mutating staging tests require explicit authorization via ALLOW_STAGING_MUTATION=true or --allow-mutation CLI flag."
+      )
+    );
+    printSummaryAndExit();
+    return;
+  }
+
+  recordResult(
+    "SafetyGuard",
+    "Staging Target Project Ref Verification",
+    "PASS",
+    `Verified approved staging project ref (${APPROVED_STAGING_PROJECT_REF}), isolated from production domains`
+  );
+  recordResult(
+    "SafetyGuard",
+    "Deliberate Mutation Authorization Gate",
+    "PASS",
+    "Explicit mutation authorization confirmed (ALLOW_STAGING_MUTATION=true or --allow-mutation)"
+  );
 
   // --- 1. NETWORK & REACHABILITY ---
   console.log("\n" + bold("--- 1. NETWORK & REACHABILITY ---"));

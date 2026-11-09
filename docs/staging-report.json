@@ -1,12 +1,12 @@
 {
   "metadata": {
-    "generatedAt": "2026-11-09T16:50:02.024Z",
+    "generatedAt": "2026-11-09T20:28:53.516Z",
     "platform": "ENGINE//OS",
     "version": "14.0",
     "target": "https://yamwmfgqqjwlfcjjkwzl.supabase.co"
   },
   "testExecutionSummary": {
-    "passed": 65,
+    "passed": 66,
     "failed": 0,
     "blocked": 3,
     "skipped": 1
@@ -96,33 +96,33 @@
   "testEnvironmentCleanupResult": {
     "trackedResources": {
       "authUsers": [
-        "3038a844-9a27-4216-aeb3-a746b6aac101",
-        "23997219-ea14-4755-93e7-dec96656827f",
-        "36900850-fb6e-4e5f-a963-c3ef45f1c29e"
+        "94167ee7-9fb8-4c3f-9a68-ccc61da0656e",
+        "81fea809-9331-427a-8d57-a8362c35b7fc",
+        "ec8d8609-177d-49b9-bf44-df1e073ce9c6"
       ],
       "organizations": [
-        "d4e22f93-76e0-426c-a454-a4badef72457",
-        "ffe09055-d2a7-4fb6-a323-17309c7bc74b"
+        "be29e32b-aee8-48d4-9b5f-f9dbfe1c1d12",
+        "d37bfdf3-9e72-47bf-9e10-7b006bea3783"
       ],
       "projectBriefs": [
-        "96c2acfe-f127-40cc-9a57-cc259a3a58bd",
-        "3185d61d-6eeb-486d-8425-237f4e13b670"
+        "8d61cd59-b40f-4de4-ab4a-07f542de593d",
+        "2916b896-8fdb-46b9-baa3-28dbe46fa89d"
       ],
       "leads": [
-        "2e3654d7-9eac-46c6-b594-5bfc5963d7d9",
-        "6dde1a3b-e50c-4bc1-8bca-16eccf299e3a"
+        "d9ab5c6d-555a-4660-b597-d479a6d84dbe",
+        "39e08997-64ee-49c9-aedf-9e2115e8d5f8"
       ],
       "quotes": [
-        "f9feadbd-ba48-4981-a17a-a75651c505eb"
+        "ff1295d5-3cbf-4924-9210-db338059ca17"
       ],
       "orders": [
-        "3cd394dc-2c63-43c7-878f-dacfd45e0f41"
+        "181eedb0-a06c-4939-b9b9-0e708b8f09c1"
       ],
       "projects": [
-        "b43a66a9-5df5-4202-9c44-8cbdc2aa8265"
+        "ef728884-bd04-4ecb-a569-ed5b98429242"
       ],
       "storageObjects": [
-        "b43a66a9-5df5-4202-9c44-8cbdc2aa8265/staging_spec.txt"
+        "ef728884-bd04-4ecb-a569-ed5b98429242/staging_spec.txt"
       ]
     },
     "deletedResources": {
@@ -137,7 +137,7 @@
     },
     "preservedImmutableRecords": {
       "quoteAcceptances": 1,
-      "auditLogs": 106,
+      "auditLogs": 113,
       "retainedParentQuotesAndOrders": 1,
       "retainedDesignatedSignatoryUsers": 1,
       "note": "quote_acceptances and audit_logs enforce PostgreSQL BEFORE UPDATE OR DELETE immutability triggers (prevent_immutable_mutation). Parent quotes/organizations referenced by quote_acceptances are preserved by foreign key integrity; the single designated synthetic test signatory (staging-synthetic-signatory@staging.notrealengine.local) is preserved and reused across runs without account accumulation or lifetime bans.",
@@ -151,483 +151,490 @@
       "testName": "Staging Target Project Ref Verification",
       "status": "PASS",
       "details": "Verified approved staging project ref (yamwmfgqqjwlfcjjkwzl), isolated from production domains",
-      "timestamp": "2026-11-09T16:49:28.401Z"
+      "timestamp": "2026-11-09T20:28:20.575Z"
+    },
+    {
+      "domain": "SafetyGuard",
+      "testName": "Deliberate Mutation Authorization Gate",
+      "status": "PASS",
+      "details": "Explicit mutation authorization confirmed (ALLOW_STAGING_MUTATION=true or --allow-mutation)",
+      "timestamp": "2026-11-09T20:28:20.577Z"
     },
     {
       "domain": "Network",
       "testName": "Supabase Cloud Endpoint Reachable",
       "status": "PASS",
       "details": "HTTP 401",
-      "timestamp": "2026-11-09T16:49:28.962Z"
+      "timestamp": "2026-11-09T20:28:20.809Z"
     },
     {
       "domain": "Credentials",
       "testName": "Dual API Keys (Anon + Service)",
       "status": "PASS",
       "details": "Both credentials present",
-      "timestamp": "2026-11-09T16:49:28.962Z"
+      "timestamp": "2026-11-09T20:28:20.809Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.profiles",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:29.771Z"
+      "timestamp": "2026-11-09T20:28:21.057Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.organizations",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:29.948Z"
+      "timestamp": "2026-11-09T20:28:21.245Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.organization_memberships",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:30.135Z"
+      "timestamp": "2026-11-09T20:28:21.459Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.services",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:30.544Z"
+      "timestamp": "2026-11-09T20:28:21.704Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.packages",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:30.978Z"
+      "timestamp": "2026-11-09T20:28:21.986Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.price_versions",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:31.173Z"
+      "timestamp": "2026-11-09T20:28:22.273Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.feature_definitions",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:31.359Z"
+      "timestamp": "2026-11-09T20:28:22.521Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.configuration_drafts",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:31.596Z"
+      "timestamp": "2026-11-09T20:28:22.695Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.project_briefs",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:31.775Z"
+      "timestamp": "2026-11-09T20:28:22.927Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.leads",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:31.949Z"
+      "timestamp": "2026-11-09T20:28:23.171Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.quotes",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:32.116Z"
+      "timestamp": "2026-11-09T20:28:23.746Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.quote_items",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:32.278Z"
+      "timestamp": "2026-11-09T20:28:24.043Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.quote_acceptances",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:32.444Z"
+      "timestamp": "2026-11-09T20:28:24.312Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.orders",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:32.618Z"
+      "timestamp": "2026-11-09T20:28:24.555Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.payment_transactions",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:32.790Z"
+      "timestamp": "2026-11-09T20:28:24.801Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.invoices",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:32.959Z"
+      "timestamp": "2026-11-09T20:28:24.975Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.projects",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:33.137Z"
+      "timestamp": "2026-11-09T20:28:25.264Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.project_requirements",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:33.304Z"
+      "timestamp": "2026-11-09T20:28:25.569Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.project_files",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:33.472Z"
+      "timestamp": "2026-11-09T20:28:25.778Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.milestones",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:33.639Z"
+      "timestamp": "2026-11-09T20:28:26.022Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.tasks",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:33.969Z"
+      "timestamp": "2026-11-09T20:28:26.288Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.approvals",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:34.210Z"
+      "timestamp": "2026-11-09T20:28:26.465Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.revision_requests",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:34.464Z"
+      "timestamp": "2026-11-09T20:28:26.641Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.support_tickets",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:34.627Z"
+      "timestamp": "2026-11-09T20:28:26.840Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.notifications",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:34.874Z"
+      "timestamp": "2026-11-09T20:28:27.032Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.outbox_events",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:35.078Z"
+      "timestamp": "2026-11-09T20:28:27.309Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.audit_logs",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:35.304Z"
+      "timestamp": "2026-11-09T20:28:27.574Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.analytics_events",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:35.495Z"
+      "timestamp": "2026-11-09T20:28:27.846Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.webhook_events",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:35.712Z"
+      "timestamp": "2026-11-09T20:28:28.022Z"
     },
     {
       "domain": "Schema",
       "testName": "Table public.rate_limit_buckets",
       "status": "PASS",
       "details": "Relation verified",
-      "timestamp": "2026-11-09T16:49:35.888Z"
+      "timestamp": "2026-11-09T20:28:28.191Z"
     },
     {
       "domain": "Schema",
       "testName": "Full 30-Table Inventory Integrity",
       "status": "PASS",
       "details": "All 30 canonical tables exist in public schema",
-      "timestamp": "2026-11-09T16:49:35.888Z"
+      "timestamp": "2026-11-09T20:28:28.191Z"
     },
     {
       "domain": "Catalog",
       "testName": "Exact 12 Canonical Services",
       "status": "PASS",
       "details": "12 of 12 verified",
-      "timestamp": "2026-11-09T16:49:36.218Z"
+      "timestamp": "2026-11-09T20:28:28.370Z"
     },
     {
       "domain": "Catalog",
       "testName": "Exact 10 Distinct Categories",
       "status": "PASS",
       "details": "10 of 10 canonical categories verified",
-      "timestamp": "2026-11-09T16:49:36.219Z"
+      "timestamp": "2026-11-09T20:28:28.370Z"
     },
     {
       "domain": "Catalog",
       "testName": "Launch Promotion Gate",
       "status": "PASS",
       "details": "Preserved as non-orderable pending founder approval",
-      "timestamp": "2026-11-09T16:49:36.406Z"
+      "timestamp": "2026-11-09T20:28:28.551Z"
     },
     {
       "domain": "MigrationAudit",
       "testName": "Remote Database Migration 0005 Audit (Read-Only)",
       "status": "PASS",
       "details": "All Migration 0005 governance tables and RPCs verified in schema",
-      "timestamp": "2026-11-09T16:49:37.129Z"
+      "timestamp": "2026-11-09T20:28:28.925Z"
     },
     {
       "domain": "MigrationAudit",
       "testName": "Remote Database Migration 0006 Audit (Read-Only)",
       "status": "BLOCKED",
       "details": "Migration 0006 is pending execution in Supabase Dashboard SQL Editor",
-      "timestamp": "2026-11-09T16:49:37.129Z"
+      "timestamp": "2026-11-09T20:28:28.926Z"
     },
     {
       "domain": "MigrationAudit",
       "testName": "Remote Database Migration 0007 Audit (Read-Only)",
       "status": "BLOCKED",
       "details": "Migration 0007 is pending execution in Supabase Dashboard SQL Editor",
-      "timestamp": "2026-11-09T16:49:37.129Z"
+      "timestamp": "2026-11-09T20:28:28.926Z"
     },
     {
       "domain": "RPC",
       "testName": "Intake RPC Anonymous Lockdown",
       "status": "PASS",
       "details": "Direct anon call strictly rejected with permission denied (42501)",
-      "timestamp": "2026-11-09T16:49:37.334Z"
+      "timestamp": "2026-11-09T20:28:29.118Z"
     },
     {
       "domain": "Auth",
       "testName": "5-Role Matrix JWT Sessions (Owner A, Admin A, Viewer A, Owner B, Staff)",
       "status": "PASS",
       "details": "5 real user JWT sessions established (Designated Signatory + 4 ephemeral roles)",
-      "timestamp": "2026-11-09T16:49:41.226Z"
+      "timestamp": "2026-11-09T20:28:33.767Z"
     },
     {
       "domain": "Security",
       "testName": "Profile Self-Staff Escalation Blocked",
       "status": "PASS",
       "details": "Customer A blocked from setting is_staff = true",
-      "timestamp": "2026-11-09T16:49:41.690Z"
+      "timestamp": "2026-11-09T20:28:34.241Z"
     },
     {
       "domain": "RLS",
       "testName": "Organization Tenant Isolation (A vs B)",
       "status": "PASS",
       "details": "Customer A sees Org A and cannot read Org B",
-      "timestamp": "2026-11-09T16:49:42.861Z"
+      "timestamp": "2026-11-09T20:28:35.127Z"
     },
     {
       "domain": "Workflow",
       "testName": "Server-Side Project Brief Intake",
       "status": "PASS",
-      "details": "Brief 96c2acfe-f127-40cc-9a57-cc259a3a58bd stored",
-      "timestamp": "2026-11-09T16:49:43.050Z"
+      "details": "Brief 8d61cd59-b40f-4de4-ab4a-07f542de593d stored",
+      "timestamp": "2026-11-09T20:28:35.499Z"
     },
     {
       "domain": "RLS",
       "testName": "Customer Blocked from Internal Leads Table",
       "status": "PASS",
       "details": "0 lead rows visible to Customer A",
-      "timestamp": "2026-11-09T16:49:43.212Z"
+      "timestamp": "2026-11-09T20:28:35.663Z"
     },
     {
       "domain": "Workflow",
       "testName": "Staff Lead Qualification",
       "status": "PASS",
-      "details": "Lead 2e3654d7-9eac-46c6-b594-5bfc5963d7d9 qualified by Staff",
-      "timestamp": "2026-11-09T16:49:43.377Z"
+      "details": "Lead d9ab5c6d-555a-4660-b597-d479a6d84dbe qualified by Staff",
+      "timestamp": "2026-11-09T20:28:35.864Z"
     },
     {
       "domain": "Workflow",
       "testName": "Omnichannel Inbound LeadConnector Persistence & Attribution",
       "status": "PASS",
-      "details": "LeadConnector intake persisted (brief=3185d61d-6eeb-486d-8425-237f4e13b670, lead=6dde1a3b-e50c-4bc1-8bca-16eccf299e3a)",
-      "timestamp": "2026-11-09T16:49:43.916Z"
+      "details": "LeadConnector intake persisted (brief=2916b896-8fdb-46b9-baa3-28dbe46fa89d, lead=39e08997-64ee-49c9-aedf-9e2115e8d5f8)",
+      "timestamp": "2026-11-09T20:28:36.475Z"
     },
     {
       "domain": "Governance",
       "testName": "Staff Blocked from Approving Production Terms",
       "status": "PASS",
       "details": "Staff unauthorized to set classification = 'approved_production'",
-      "timestamp": "2026-11-09T16:49:44.199Z"
+      "timestamp": "2026-11-09T20:28:36.657Z"
     },
     {
       "domain": "Workflow",
       "testName": "Staff Quotation Creation & Publishing",
       "status": "PASS",
-      "details": "Quote f9feadbd-ba48-4981-a17a-a75651c505eb published in state 'sent'",
-      "timestamp": "2026-11-09T16:49:44.397Z"
+      "details": "Quote ff1295d5-3cbf-4924-9210-db338059ca17 published in state 'sent'",
+      "timestamp": "2026-11-09T20:28:36.840Z"
     },
     {
       "domain": "RLS",
       "testName": "Cross-Tenant Quote Read & Acceptance Blocked",
       "status": "PASS",
       "details": "Customer B blocked from reading or accepting Org A quote",
-      "timestamp": "2026-11-09T16:49:44.910Z"
+      "timestamp": "2026-11-09T20:28:37.192Z"
     },
     {
       "domain": "RLS",
       "testName": "Org Admin Quote Visibility",
       "status": "PASS",
       "details": "Org A Admin can read Org A quote",
-      "timestamp": "2026-11-09T16:49:45.082Z"
+      "timestamp": "2026-11-09T20:28:37.356Z"
     },
     {
       "domain": "Workflow",
       "testName": "Designated Signatory Atomic Quote Acceptance (decide_quote)",
       "status": "PASS",
-      "details": "Order 3cd394dc-2c63-43c7-878f-dacfd45e0f41 created",
-      "timestamp": "2026-11-09T16:49:45.537Z"
+      "details": "Order 181eedb0-a06c-4939-b9b9-0e708b8f09c1 created",
+      "timestamp": "2026-11-09T20:28:37.533Z"
     },
     {
       "domain": "Workflow",
       "testName": "Order Idempotency & Payment Gate Integrity",
       "status": "PASS",
       "details": "Exactly 1 order created in 'awaiting_payment'; duplicate acceptance rejected",
-      "timestamp": "2026-11-09T16:49:46.060Z"
+      "timestamp": "2026-11-09T20:28:38.057Z"
     },
     {
       "domain": "RLS",
       "testName": "Customer Blocked from Mutating Order State",
       "status": "PASS",
       "details": "Order remained in 'awaiting_payment'",
-      "timestamp": "2026-11-09T16:49:46.547Z"
+      "timestamp": "2026-11-09T20:28:38.403Z"
     },
     {
       "domain": "Governance",
       "testName": "Financial Clearance Trigger on Orders",
       "status": "PASS",
       "details": "Unpaid order rejected by DB financial clearance trigger",
-      "timestamp": "2026-11-09T16:49:46.712Z"
+      "timestamp": "2026-11-09T20:28:38.614Z"
     },
     {
       "domain": "Workflow",
       "testName": "Order Confirmation with Audited Manual Settlement",
       "status": "PASS",
-      "details": "Order 3cd394dc-2c63-43c7-878f-dacfd45e0f41 confirmed with settlement reference STG-SETTLE-MW9HXXRQ-IXBB",
-      "timestamp": "2026-11-09T16:49:46.878Z"
+      "details": "Order 181eedb0-a06c-4939-b9b9-0e708b8f09c1 confirmed with settlement reference STG-SETTLE-MW9PREBI-PL86",
+      "timestamp": "2026-11-09T20:28:38.884Z"
     },
     {
       "domain": "Workflow",
       "testName": "Atomic Project Provisioning RPC (initialize_project_from_order)",
       "status": "PASS",
-      "details": "Project b43a66a9-5df5-4202-9c44-8cbdc2aa8265 provisioned atomically",
-      "timestamp": "2026-11-09T16:49:47.079Z"
+      "details": "Project ef728884-bd04-4ecb-a569-ed5b98429242 provisioned atomically",
+      "timestamp": "2026-11-09T20:28:39.153Z"
     },
     {
       "domain": "Workflow",
       "testName": "Project Provisioning RPC Idempotency",
       "status": "PASS",
       "details": "Duplicate invocation returned existing project ID",
-      "timestamp": "2026-11-09T16:49:47.242Z"
+      "timestamp": "2026-11-09T20:28:39.323Z"
     },
     {
       "domain": "Workflow",
       "testName": "Project Workspace, Requirements & Milestones Provisioned",
       "status": "PASS",
-      "details": "Project b43a66a9-5df5-4202-9c44-8cbdc2aa8265 active",
-      "timestamp": "2026-11-09T16:49:47.637Z"
+      "details": "Project ef728884-bd04-4ecb-a569-ed5b98429242 active",
+      "timestamp": "2026-11-09T20:28:39.788Z"
     },
     {
       "domain": "Workflow",
       "testName": "Customer A Requirement Submission & RLS Isolation",
       "status": "PASS",
       "details": "Designated Signatory submitted requirement; Customer B blocked",
-      "timestamp": "2026-11-09T16:49:47.986Z"
+      "timestamp": "2026-11-09T20:28:40.212Z"
     },
     {
       "domain": "Storage",
       "testName": "Authenticated Upload, Metadata & Signed URL Isolation",
       "status": "PASS",
       "details": "Customer A uploaded & generated signed URL; Customer B denied",
-      "timestamp": "2026-11-09T16:49:49.022Z"
+      "timestamp": "2026-11-09T20:28:41.444Z"
     },
     {
       "domain": "Workflow",
       "testName": "Revision Request & Revision Limit Constraint Enforcement",
       "status": "PASS",
       "details": "Revision #1 recorded; exceeding revision_limit (2 > 1) rejected by PostgreSQL constraint",
-      "timestamp": "2026-11-09T16:49:50.929Z"
+      "timestamp": "2026-11-09T20:28:43.257Z"
     },
     {
       "domain": "Workflow",
       "testName": "Client Deliverable Approval & Final Delivery Transition",
       "status": "PASS",
       "details": "Approval logged and project transitioned to 'delivered'",
-      "timestamp": "2026-11-09T16:49:52.184Z"
+      "timestamp": "2026-11-09T20:28:44.409Z"
     },
     {
       "domain": "Storage",
       "testName": "project-files Private Bucket",
       "status": "PASS",
       "details": "Private, RLS-governed",
-      "timestamp": "2026-11-09T16:50:01.845Z"
+      "timestamp": "2026-11-09T20:28:53.362Z"
     },
     {
       "domain": "Storage",
       "testName": "Unauthenticated Upload Lockdown",
       "status": "PASS",
       "details": "Rejected unauthenticated storage write",
-      "timestamp": "2026-11-09T16:50:02.023Z"
+      "timestamp": "2026-11-09T20:28:53.515Z"
     },
     {
       "domain": "ExternalIntegration",
       "testName": "LeadConnector Inbound Webhook Configuration",
       "status": "BLOCKED",
       "details": "LEADCONNECTOR_WEBHOOK_SECRET missing in environment (webhook endpoint rejects requests fail-closed)",
-      "timestamp": "2026-11-09T16:50:02.023Z"
+      "timestamp": "2026-11-09T20:28:53.515Z"
     },
     {
       "domain": "ExternalIntegration",
       "testName": "LeadConnector Live Webhook Delivery",
       "status": "SKIPPED",
       "details": "Live delivery verification requires active GoHighLevel workflow webhook delivery to staging URL",
-      "timestamp": "2026-11-09T16:50:02.023Z"
+      "timestamp": "2026-11-09T20:28:53.515Z"
     },
     {
       "domain": "HostedAcceptance",
       "testName": "Browser Acceptance Target Isolation",
       "status": "PASS",
       "details": "Target base URL isolated (http://localhost:3000)",
-      "timestamp": "2026-11-09T16:50:02.023Z"
+      "timestamp": "2026-11-09T20:28:53.516Z"
     }
   ]
 }
