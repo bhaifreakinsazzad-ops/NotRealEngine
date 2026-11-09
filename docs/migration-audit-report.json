@@ -1,11 +1,16 @@
 {
   "metadata": {
-    "generatedAt": "2026-11-09T16:46:38.758Z",
+    "generatedAt": "2026-11-09T17:31:36.680Z",
     "platform": "ENGINE//OS",
-    "auditVersion": "V20.0",
+    "auditVersion": "V21.0",
     "targetHost": "https://yamwmfgqqjwlfcjjkwzl.supabase.co",
     "targetProjectRef": "yamwmfgqqjwlfcjjkwzl",
     "mode": "READ_ONLY_STANDALONE"
+  },
+  "overallVerdict": {
+    "status": "BLOCKED",
+    "exitCode": 1,
+    "summary": "Audit incomplete: API schema migrations pending and PostgreSQL direct catalog verification blocked."
   },
   "twoLevelVerification": {
     "level1ApiSchemaVerification": {
@@ -104,7 +109,19 @@
     },
     "level2PostgreSqlCatalogVerification": {
       "status": "BLOCKED",
-      "summary": "Direct PostgreSQL TCP connection string (DATABASE_URL / port 5432) is not configured in local environment. PostgREST REST interface intentionally does not expose pg_catalog or information_schema directly. Direct catalog inspection (pg_proc, pg_policy, schema_migrations) remains truthfully BLOCKED."
+      "summary": "Direct PostgreSQL TCP connection string (DATABASE_URL / port 5432) is not configured in local environment. PostgREST REST interface intentionally does not expose pg_catalog or information_schema directly. Direct catalog inspection (pg_proc, pg_policy, schema_migrations) remains truthfully BLOCKED.",
+      "migration0005": {
+        "status": "NOT_APPLIED",
+        "objects": {}
+      },
+      "migration0006": {
+        "status": "NOT_APPLIED",
+        "objects": {}
+      },
+      "migration0007": {
+        "status": "NOT_APPLIED",
+        "objects": {}
+      }
     }
   },
   "databaseState": {

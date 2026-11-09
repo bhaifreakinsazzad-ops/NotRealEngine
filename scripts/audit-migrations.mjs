@@ -18,7 +18,11 @@
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
-import { executeReadOnlyMigrationAudit } from "./read-only-audit.mjs";
+import {
+  executeReadOnlyMigrationAudit,
+  executePostgresCatalogAudit,
+  evaluateOverallAuditStatus
+} from "./read-only-audit.mjs";
 
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
@@ -114,28 +118,56 @@ async function runStandaloneMigrationAudit() {
   console.log(bold("LEVEL 2: POSTGRESQL CATALOG VERIFICATION (pg_catalog, pg_proc, pg_policy)"));
   console.log(bold("--------------------------------------------------------------------------------"));
 
-  let level2Status = "BLOCKED";
-  let level2Summary = "";
+  const level2Result = await executePostgresCatalogAudit(directDbUrl);
 
-  if (!directDbUrl) {
-    level2Status = "BLOCKED";
-    level2Summary =
-      "Direct PostgreSQL TCP connection string (DATABASE_URL / port 5432) is not configured in local environment. PostgREST REST interface intentionally does not expose pg_catalog or information_schema directly. Direct catalog inspection (pg_proc, pg_policy, schema_migrations) remains truthfully BLOCKED.";
-    console.log(`  ${yellow("[BLOCKED: CATALOG ACCESS UNAVAILABLE]")}`);
-    console.log(`  Reason: ${level2Summary}`);
-  } else {
-    // If direct connection is provided, run strictly read-only catalog query
-    try {
-      console.log(`  ${green("[AVAILABLE]")} Direct PostgreSQL connection configured. Inspecting pg_catalog...`);
-      // Note: Read-only transaction logic can execute here when direct client is installed
-      level2Status = "PASS";
-      level2Summary = "PostgreSQL catalog inspection completed via direct administrative connection.";
-    } catch (err) {
-      level2Status = "FAIL";
-      level2Summary = `Direct catalog inspection failed: ${err.message}`;
-      console.log(`  ${red("[FAIL]")} ${level2Summary}`);
-    }
+  const level2Badge =
+    level2Result.status === "PASS"
+      ? green("[PASS: POSTGRESQL CATALOG VERIFIED]")
+      : level2Result.status === "BLOCKED"
+      ? yellow("[BLOCKED: CATALOG ACCESS UNAVAILABLE]")
+      : level2Result.status === "MISMATCH"
+      ? red("[MISMATCH: OBJECT DEFINITION DIFFERS]")
+      : red("[FAIL: CATALOG VERIFICATION FAILED]");
+
+  console.log(`  Overall Level 2 Status : ${level2Badge}`);
+  console.log(`  Summary                : ${level2Result.summary}`);
+
+  if (level2Result.databaseIdentity) {
+    console.log(
+      `  Database Identity      : ${cyan(level2Result.databaseIdentity.database)} (user=${cyan(level2Result.databaseIdentity.user)})`
+    );
   }
+  if (level2Result.migrationsLedger && level2Result.migrationsLedger.length > 0) {
+    console.log(`  Migrations in Ledger   : ${level2Result.migrationsLedger.join(", ")}`);
+  }
+
+  const printCatalogMigration = (id, title, catResult) => {
+    if (!catResult || Object.keys(catResult.objects || {}).length === 0) return;
+    const catBadge =
+      catResult.status === "PASS"
+        ? green("[PASS: CATALOG VERIFIED]")
+        : catResult.status === "MISMATCH"
+        ? red("[MISMATCH]")
+        : catResult.status === "FAIL"
+        ? red("[FAIL]")
+        : yellow("[NOT APPLIED]");
+    console.log(`\n  ${bold(`Migration ${id}`)} (Catalog): ${title} — ${catBadge}`);
+    for (const obj of Object.values(catResult.objects)) {
+      const objBadge =
+        obj.status === "APPLIED"
+          ? green("✓ APPLIED")
+          : obj.status === "MISMATCH"
+          ? red("⚠ MISMATCH")
+          : obj.status === "FAIL"
+          ? red("✗ FAIL")
+          : yellow("⏳ NOT APPLIED");
+      console.log(`    - ${obj.name.padEnd(38)} [${obj.type.padEnd(10)}] : ${objBadge} (${obj.details || obj.expected})`);
+    }
+  };
+
+  printCatalogMigration("0005", "Quotation & Order Governance", level2Result.migration0005);
+  printCatalogMigration("0006", "Terms Environment & Founder Governance", level2Result.migration0006);
+  printCatalogMigration("0007", "LeadConnector Ingestion Integrity", level2Result.migration0007);
 
   // ---------------------------------------------------------------------------
   // READ-ONLY ENVIRONMENT STATE & COMMERCIAL TERMS RECORD
@@ -180,14 +212,21 @@ async function runStandaloneMigrationAudit() {
   // ---------------------------------------------------------------------------
   // GENERATE MACHINE-READABLE AUDIT REPORT
   // ---------------------------------------------------------------------------
+  const overallVerdict = evaluateOverallAuditStatus(auditResult, level2Result);
+
   const report = {
     metadata: {
       generatedAt: new Date().toISOString(),
       platform: "ENGINE//OS",
-      auditVersion: "V20.0",
+      auditVersion: "V21.0",
       targetHost: supabaseUrl,
       targetProjectRef: APPROVED_STAGING_PROJECT_REF,
       mode: "READ_ONLY_STANDALONE"
+    },
+    overallVerdict: {
+      status: overallVerdict.overallStatus,
+      exitCode: overallVerdict.exitCode,
+      summary: overallVerdict.summary
     },
     twoLevelVerification: {
       level1ApiSchemaVerification: {
@@ -197,8 +236,13 @@ async function runStandaloneMigrationAudit() {
         migration0007: auditResult.migration0007
       },
       level2PostgreSqlCatalogVerification: {
-        status: level2Status,
-        summary: level2Summary
+        status: level2Result.status,
+        summary: level2Result.summary,
+        databaseIdentity: level2Result.databaseIdentity,
+        migrationsLedger: level2Result.migrationsLedger,
+        migration0005: level2Result.migration0005,
+        migration0006: level2Result.migration0006,
+        migration0007: level2Result.migration0007
       }
     },
     databaseState: {
@@ -222,16 +266,13 @@ async function runStandaloneMigrationAudit() {
   console.log(bold("AUDIT EXECUTION CONCLUSION"));
   console.log(bold("================================================================================"));
   console.log(`Level 1 (API Schema)    : ${auditResult.migration0005.status === "PASS" ? green("0005 PASS") : red("0005 FAIL")}, ${auditResult.migration0006.status === "PASS" ? green("0006 PASS") : yellow("0006 BLOCKED")}, ${auditResult.migration0007.status === "PASS" ? green("0007 PASS") : yellow("0007 BLOCKED")}`);
-  console.log(`Level 2 (Pg Catalog)   : ${level2Status === "PASS" ? green("VERIFIED") : yellow("BLOCKED (Requires direct PostgreSQL port 5432)")}`);
+  console.log(`Level 2 (Pg Catalog)   : ${level2Result.status === "PASS" ? green("VERIFIED (PASS)") : level2Result.status === "BLOCKED" ? yellow("BLOCKED (Requires direct PostgreSQL port 5432)") : red(level2Result.status)}`);
+  console.log(`Overall Readiness Gate  : ${overallVerdict.overallStatus === "PASS" ? green("[PASS: ALL GATES VERIFIED]") : overallVerdict.overallStatus === "BLOCKED" ? yellow(`[BLOCKED: RELEASE BLOCKED (Exit ${overallVerdict.exitCode})]`) : red(`[FAIL: DEFECT DETECTED (Exit ${overallVerdict.exitCode})]`)}`);
+  console.log(`Gate Reason             : ${overallVerdict.summary}`);
   console.log(`Rollout File Ready      : ${cyan("supabase/migrations/APPLY_0006_AND_0007.sql")}`);
   console.log(`Execution Safe          : ${green("YES — ZERO MUTATING OPERATIONS PERFORMED")}\n`);
 
-  // Exit with non-zero if migrations 0006 or 0007 are blocked/pending
-  if (auditResult.migration0006.status !== "PASS" || auditResult.migration0007.status !== "PASS") {
-    process.exit(1);
-  }
-
-  process.exit(0);
+  process.exit(overallVerdict.exitCode);
 }
 
 runStandaloneMigrationAudit().catch((err) => {
