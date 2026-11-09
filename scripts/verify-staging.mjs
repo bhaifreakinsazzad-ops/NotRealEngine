@@ -9,6 +9,7 @@
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
+import { executeReadOnlyMigrationAudit } from "./read-only-audit.mjs";
 
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
@@ -160,20 +161,27 @@ async function runStagingVerification() {
 
   // --- 0. TARGET ENVIRONMENT SAFETY GUARD ---
   console.log(bold("--- 0. STAGING ENVIRONMENT SAFETY GUARD ---"));
-  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF)) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const playwrightBaseUrl = process.env.PLAYWRIGHT_BASE_URL || appUrl;
+  const isProductionTarget =
+    appUrl.includes("app.notrealengine.online") ||
+    playwrightBaseUrl.includes("app.notrealengine.online");
+
+  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF) || isProductionTarget) {
     recordResult(
       "SafetyGuard",
       "Staging Target Project Ref Verification",
       "FAIL",
-      `Refusing to provision synthetic test users on non-staging target (${supabaseUrl}, ENGINE_OS_ENV=${engineEnv})`
+      `CRITICAL SAFETY HALT: Refusing to provision synthetic test users on production target (${supabaseUrl}, appUrl=${appUrl}, ENGINE_OS_ENV=${engineEnv})`
     );
     printSummaryAndExit();
+    return;
   } else {
     recordResult(
       "SafetyGuard",
       "Staging Target Project Ref Verification",
       "PASS",
-      `Verified approved staging project ref (${APPROVED_STAGING_PROJECT_REF})`
+      `Verified approved staging project ref (${APPROVED_STAGING_PROJECT_REF}), isolated from production domains`
     );
   }
 
@@ -286,30 +294,48 @@ async function runStagingVerification() {
     recordResult("Catalog", "Catalog Verification", "FAIL", err.message);
   }
 
-  // --- 5. RPC SECURITY & PERIMETER BOUNDARIES ---
-  console.log("\n" + bold("--- 5. RPC SECURITY & INGESTION BOUNDARIES ---"));
-  const syntheticPayload = {
-    serviceId: "SVC-01-SPW",
-    name: "Staging Test Visitor",
-    email: "staging-test@notrealengine.local",
-    phone: "+8801700000000",
-    problem: "Automated staging verification brief submission to validate database persistence.",
-    consent: "true"
-  };
+  // =============================================================================
+  // LAYER A: READ-ONLY METADATA & MIGRATION AUDIT (ZERO DATA MUTATIONS)
+  // =============================================================================
+  console.log("\n" + bold("--- LAYER A: READ-ONLY METADATA & MIGRATION AUDIT (ZERO MUTATIONS) ---"));
 
+  const readOnlyAudit = await executeReadOnlyMigrationAudit(supabaseUrl, serviceKey, adminClient);
+
+  migration0005Audit.allObjectsAppliedInRemoteDb = readOnlyAudit.migration0005.allObjectsApplied;
+  migration0005Audit.objects = readOnlyAudit.migration0005.objects;
+
+  migration0006Audit.allObjectsAppliedInRemoteDb = readOnlyAudit.migration0006.allObjectsApplied;
+  migration0006Audit.objects = readOnlyAudit.migration0006.objects;
+
+  migration0007Audit.allObjectsAppliedInRemoteDb = readOnlyAudit.migration0007.allObjectsApplied;
+  migration0007Audit.objects = readOnlyAudit.migration0007.objects;
+
+  recordResult(
+    "MigrationAudit",
+    "Remote Database Migration 0005 Audit (Read-Only)",
+    readOnlyAudit.migration0005.status,
+    readOnlyAudit.migration0005.summary
+  );
+
+  recordResult(
+    "MigrationAudit",
+    "Remote Database Migration 0006 Audit (Read-Only)",
+    readOnlyAudit.migration0006.status,
+    readOnlyAudit.migration0006.summary
+  );
+
+  recordResult(
+    "MigrationAudit",
+    "Remote Database Migration 0007 Audit (Read-Only)",
+    readOnlyAudit.migration0007.status,
+    readOnlyAudit.migration0007.summary
+  );
+
+  // --- LAYER A.2: RPC PERIMETER SECURITY (ANONYMOUS LOCKDOWN) ---
+  console.log("\n" + bold("--- LAYER A.2: RPC PERIMETER SECURITY (ANONYMOUS LOCKDOWN) ---"));
   try {
-    const { error: decideErr } = await adminClient.rpc("decide_quote", {
-      p_quote_id: "00000000-0000-0000-0000-000000000000",
-      p_decision: "rejected"
-    });
-    if (decideErr && decideErr.message.includes("does not exist")) {
-      recordResult("RPC", "Function public.decide_quote", "FAIL", "Function not found in schema");
-    } else {
-      recordResult("RPC", "Function public.decide_quote", "PASS", "Function verified in schema");
-    }
-
     const { error: anonRpcErr } = await anonClient.rpc("submit_project_brief", {
-      p_payload: syntheticPayload,
+      p_payload: { probe: true },
       p_request_hash: "forged-hash-attempt",
       p_reference: "PROBE-ANON"
     });
@@ -328,8 +354,26 @@ async function runStagingVerification() {
     recordResult("RPC", "RPC & Ingestion Checks", "FAIL", err.message);
   }
 
-  // --- 6. MULTI-TENANT 5-ROLE MATRIX, MIGRATION AUDITS & END-TO-END LIFECYCLE ---
-  console.log("\n" + bold("--- 6. REAL 5-ROLE MATRIX, RLS & BUSINESS LIFECYCLE ---"));
+  // =============================================================================
+  // LAYER B: CONTROLLED DATABASE INTEGRATION TESTING (STAGING SYNTHETIC FIXTURES)
+  // =============================================================================
+  console.log("\n" + bold("--- LAYER B: CONTROLLED DATABASE INTEGRATION TESTING (STAGING FIXTURES) ---"));
+
+  // Critical Safeguard: Verify exact staging target before executing state-mutating fixtures
+  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF)) {
+    console.log(red("\nCRITICAL SAFETY GUARD: Halting before state-mutating Layer B execution. Never run mutating fixtures against production."));
+    printSummaryAndExit();
+    return;
+  }
+
+  const syntheticPayload = {
+    serviceId: "SVC-01-SPW",
+    name: "Staging Test Visitor",
+    email: "staging-test@notrealengine.local",
+    phone: "+8801700000000",
+    problem: "Automated staging verification brief submission to validate database persistence.",
+    consent: "true"
+  };
 
   const runTag = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const password = `Stg!Pass#${runTag}99`;
@@ -517,116 +561,7 @@ async function runStagingVerification() {
       recordResult("RLS", "Organization Tenant Isolation (A vs B)", "FAIL", `seesOrgA=${seesOrgA}, seesOrgB=${seesOrgB}`);
     }
 
-    // 6.4B Inspect Remote Database Migration 0005 & Migration 0006 Status
-    const { data: authBriefProbeId, error: authBriefProbeErr } = await clientA.rpc("submit_project_brief", {
-      p_payload: syntheticPayload,
-      p_request_hash: `probe-auth-${runTag}`,
-      p_reference: `PROBE-AUTH-${runTag.toUpperCase()}`
-    });
-    if (authBriefProbeId) {
-      cleanupAudit.trackedResources.projectBriefs.push(authBriefProbeId);
-    }
-    const submitBriefRevokedFromAuth = Boolean(
-      authBriefProbeErr && (authBriefProbeErr.code === "42501" || authBriefProbeErr.message.includes("permission denied"))
-    );
-    migration0005Audit.objects.submit_project_brief_authenticated_revoked = submitBriefRevokedFromAuth
-      ? "APPLIED (42501 permission denied)"
-      : "PENDING_FOUNDER_SQL_0005 (enforced in Next.js API route)";
-
-    const { error: termsTableErr } = await adminClient.from("commercial_terms_versions").select("version").limit(1);
-    const termsTableApplied = !termsTableErr;
-    migration0005Audit.objects.commercial_terms_versions_table = termsTableApplied
-      ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0005";
-
-    const { error: initProjRpcErr } = await adminClient.rpc("initialize_project_from_order", {
-      p_order_id: "00000000-0000-0000-0000-000000000000"
-    });
-    const initProjRpcApplied = Boolean(initProjRpcErr && !initProjRpcErr.message.includes("Could not find the function"));
-    migration0005Audit.objects.initialize_project_from_order_rpc = initProjRpcApplied
-      ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0005";
-
-    migration0005Audit.allObjectsAppliedInRemoteDb =
-      submitBriefRevokedFromAuth && termsTableApplied && initProjRpcApplied;
-
-    // Probe Migration 0006 objects:
-    const { data: sysEnvRow, error: sysEnvErr } = await adminClient.from("system_environment").select("*").eq("id", "current").maybeSingle();
-    const sysEnvTableApplied = !sysEnvErr && Boolean(sysEnvRow);
-    migration0006Audit.objects.system_environment_table = sysEnvTableApplied
-      ? `APPLIED (env=${sysEnvRow?.environment}, synthetic_allowed=${sysEnvRow?.is_synthetic_allowed})`
-      : "PENDING_FOUNDER_SQL_0006 (enforced fail-safe in app domain logic)";
-
-    const { error: approveTermsRpcErr } = await adminClient.rpc("approve_commercial_terms", {
-      p_version: "ENGINE//OS-TERMS-V1.0",
-      p_reference: "PROBE"
-    });
-    const approveTermsRpcApplied = Boolean(approveTermsRpcErr && !approveTermsRpcErr.message.includes("Could not find the function"));
-    migration0006Audit.objects.approve_commercial_terms_rpc = approveTermsRpcApplied
-      ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0006";
-
-    const { error: setEnvRpcErr } = await adminClient.rpc("set_system_environment", {
-      p_environment: "staging",
-      p_allow_synthetic: true
-    });
-    const setEnvRpcApplied = Boolean(setEnvRpcErr === null || (setEnvRpcErr && !setEnvRpcErr.message.includes("Could not find the function")));
-    migration0006Audit.objects.set_system_environment_rpc = setEnvRpcApplied
-      ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0006";
-
-    migration0006Audit.allObjectsAppliedInRemoteDb = sysEnvTableApplied && approveTermsRpcApplied && setEnvRpcApplied;
-
-    // Probe Migration 0007 objects:
-    const { error: ingestRpcErr } = await adminClient.rpc("ingest_leadconnector_event", {
-      p_provider_event_id: "probe-staging-check",
-      p_payload_hash: "probe-hash",
-      p_reference: "probe-ref",
-      p_service_id: null,
-      p_contact_name: "probe",
-      p_contact_email: "probe@staging.local",
-      p_contact_phone: null,
-      p_organization_name: null,
-      p_payload: {},
-      p_attribution: {}
-    });
-    const ingestRpcApplied = Boolean(ingestRpcErr && !ingestRpcErr.message.includes("Could not find the function"));
-    migration0007Audit.objects.ingest_leadconnector_event_rpc = ingestRpcApplied
-      ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0007 (service-role atomic ingestion RPC)";
-
-    const { error: webhookColsErr } = await adminClient.from("webhook_events").select("project_brief_id, lead_id").limit(1);
-    const webhookColsApplied = !webhookColsErr;
-    migration0007Audit.objects.webhook_events_fk_columns = webhookColsApplied
-      ? "APPLIED"
-      : "PENDING_FOUNDER_SQL_0007 (foreign keys linking project_brief_id and lead_id)";
-
-    migration0007Audit.allObjectsAppliedInRemoteDb = ingestRpcApplied && webhookColsApplied;
-
-    const status0005 = migration0005Audit.allObjectsAppliedInRemoteDb ? "PASS" : "FAIL";
-    const status0006 = migration0006Audit.allObjectsAppliedInRemoteDb ? "PASS" : "BLOCKED";
-    const status0007 = migration0007Audit.allObjectsAppliedInRemoteDb ? "PASS" : "BLOCKED";
-
-    recordResult(
-      "MigrationAudit",
-      "Remote Database Migration 0005 Audit",
-      status0005,
-      `Applied: ${migration0005Audit.allObjectsAppliedInRemoteDb ? "ALL 3 (verified live)" : "Partial (missing required objects)"}`
-    );
-
-    recordResult(
-      "MigrationAudit",
-      "Remote Database Migration 0006 Audit",
-      status0006,
-      `Environment & Terms Governance: ${migration0006Audit.allObjectsAppliedInRemoteDb ? "ALL APPLIED (verified live)" : "BLOCKED (pending founder execution of supabase/migrations/APPLY_0006_AND_0007.sql in Supabase SQL Editor)"}`
-    );
-
-    recordResult(
-      "MigrationAudit",
-      "Remote Database Migration 0007 Audit",
-      status0007,
-      `LeadConnector Ingestion Integrity: ${migration0007Audit.allObjectsAppliedInRemoteDb ? "ALL APPLIED (verified live)" : "BLOCKED (pending founder execution of supabase/migrations/APPLY_0006_AND_0007.sql in Supabase SQL Editor)"}`
-    );
+    // 6.4B Migration Audit: Safely executed in Layer A via 100% read-only PostgREST OpenAPI metadata inspection (zero mutating RPC calls).
 
     // 6.5 Lead Intake & Admin Lead Qualification
     const testReference = `STG-${runTag.toUpperCase()}`;
@@ -1307,23 +1242,10 @@ async function runStagingVerification() {
       cleanupAudit.preservedImmutableRecords.retainedDesignatedStaffUsers = 1;
     }
 
-    // Sweep any legacy ephemeral @staging.notrealengine.local users from older test versions
-    const { data: allAuthUsers } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 200 });
-    const legacyUsers = (allAuthUsers?.users ?? []).filter(
-      (u) =>
-        u.email?.endsWith("@staging.notrealengine.local") &&
-        u.email !== DESIGNATED_SIGNATORY_EMAIL &&
-        u.email !== DESIGNATED_STAFF_EMAIL &&
-        !cleanupAudit.trackedResources.authUsers.includes(u.id)
-    );
-    if (legacyUsers.length > 0) {
-      const { data: allAcceptances } = await adminClient.from("quote_acceptances").select("accepted_by");
-      const activeSigIds = new Set(allAcceptances?.map((a) => a.accepted_by));
-      for (const u of legacyUsers) {
-        if (!activeSigIds.has(u.id)) {
-          await adminClient.auth.admin.deleteUser(u.id);
-        }
-      }
+    // Run-scoped residual check (Directive V20.0 Section 5: avoid broad domain sweeps, verify 0 residuals)
+    const residualEphemeralUsers = cleanupAudit.trackedResources.authUsers.length - cleanupAudit.deletedResources.authUsers;
+    if (residualEphemeralUsers > 0) {
+      cleanupAudit.unexpectedCleanupErrors.push(`Residual uncleaned ephemeral users detected: ${residualEphemeralUsers}`);
     }
 
     const { count: totalAuditLogs } = await adminClient
@@ -1364,6 +1286,40 @@ async function runStagingVerification() {
     recordResult("Storage", "Storage Bucket Checks", "FAIL", err.message);
   }
 
+  // =============================================================================
+  // LAYER C: EXTERNAL PROVIDER INTEGRATION STATUS
+  // =============================================================================
+  console.log("\n" + bold("--- LAYER C: EXTERNAL PROVIDER INTEGRATION STATUS ---"));
+  const webhookSecret = process.env.LEADCONNECTOR_WEBHOOK_SECRET;
+  recordResult(
+    "ExternalIntegration",
+    "LeadConnector Inbound Webhook Configuration",
+    webhookSecret ? "PASS" : "BLOCKED",
+    webhookSecret
+      ? "Webhook secret configured in environment"
+      : "LEADCONNECTOR_WEBHOOK_SECRET missing in environment (webhook endpoint rejects requests fail-closed)"
+  );
+  recordResult(
+    "ExternalIntegration",
+    "LeadConnector Live Webhook Delivery",
+    "SKIPPED",
+    "Live delivery verification requires active GoHighLevel workflow webhook delivery to staging URL"
+  );
+
+  // =============================================================================
+  // LAYER D: HOSTED BROWSER ACCEPTANCE GUIDANCE
+  // =============================================================================
+  console.log("\n" + bold("--- LAYER D: HOSTED BROWSER ACCEPTANCE GUIDANCE ---"));
+  const pointsToProduction = playwrightBaseUrl.includes("notrealengine.online");
+  recordResult(
+    "HostedAcceptance",
+    "Browser Acceptance Target Isolation",
+    pointsToProduction ? "FAIL" : "PASS",
+    pointsToProduction
+      ? "CRITICAL VIOLATION: State-mutating E2E journeys MUST NOT target production domain app.notrealengine.online"
+      : `Target base URL isolated (${playwrightBaseUrl})`
+  );
+
   printSummaryAndExit();
 }
 
@@ -1388,6 +1344,9 @@ function printSummaryAndExit() {
   console.log(bold("=========================================================="));
   console.log(
     `  Deleted Ephemeral Users  : ${cleanupAudit.deletedResources.authUsers}/${cleanupAudit.trackedResources.authUsers.length}`
+  );
+  console.log(
+    `  Residual Ephemeral Users : ${cleanupAudit.trackedResources.authUsers.length - cleanupAudit.deletedResources.authUsers} (Target: 0)`
   );
   console.log(
     `  Designated Signatory     : ${cleanupAudit.preservedImmutableRecords.retainedDesignatedSignatoryUsers} preserved (${DESIGNATED_SIGNATORY_EMAIL})`

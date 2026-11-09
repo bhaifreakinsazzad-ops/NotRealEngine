@@ -1,7 +1,7 @@
 # ENGINE//OS — Project Status & Handoff
 **Company:** NOTREAL ENGINE, LLC  
 **Snapshot:** 2026-11-09 (Bangladesh time)  
-**Status:** ACTIVE EXECUTION (Directive V18.0)  
+**Status:** ACTIVE EXECUTION (Directive V20.0 — Final Integration, Database Activation, Protected Staging & Release A Completion)  
 **Project:** https://github.com/bhaifreakinsazzad-ops/NotRealEngine  
 **Local working folder:** E:\Agentic Work Station\Web Applications\NotRealEngine  
 **Active Working Branch:** `feature/v18-release-a-finalization`
@@ -14,22 +14,30 @@ ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website an
 - **Gemini phase (V6–V14):** Implemented and iterated the public website, canonical catalog, Solution Finder, six-step Builder, lead intake, Supabase Auth/RLS/private Storage, Admin Inbox, quotation and order workflows, client projects, revisions/approvals, outbox/payment adapters, branding/media and embedded LeadConnector booking, forms and chat. Migrated the source to GitHub and established a Vercel deployment. Added database migration files **0001–0006**, local and staging-check scripts, and deployment documentation.
 - **Claude Code takeover (V16):** Committed fail-closed LeadConnector webhook authentication (**4c502bf**); transactional, event-keyed lead ingestion and migration **0007** (**d7ae40d**); corrected migration documentation (**701de43**); and documented environment separation/added hosted Playwright base URL support (**0300a9c**).
 - **Gemini Master Directive V18.0 Execution:**
-  - **Eliminated Migration Audit Fake PASS:** Corrected `scripts/verify-staging.mjs` so unapplied remote migrations (0006, 0007) truthfully report as `BLOCKED` and trigger exit code 1, rather than masking as PASS.
-  - **Single Composite Migration Script:** Authored and verified `supabase/migrations/APPLY_0006_AND_0007.sql` for turnkey single-transaction execution in the Supabase Dashboard SQL Editor.
-  - **Resolved LeadConnector Event-Identity Collisions:** In `app/api/webhooks/leadconnector/route.ts`, eliminated risk of static form template ID or contact ID collisions dropping distinct visitor enquiries by deriving true unique seeds (combining submission IDs, execution IDs, contact keys, timestamps, and digests).
-  - **Payload Conflict Handling:** Updated migration `0007` and webhook route to detect conflicting payloads on identical event IDs, recording an audit log and returning HTTP 409 Conflict rather than silently treating contradictory payloads as duplicates.
-  - **Data Minimization:** Sanitized incoming external payloads to extract only required qualification/attribution properties, dropping sensitive credential keys or extraneous provider tokens.
-  - **Release A UX & Conversion Polish:** Enhanced `components/project-builder.tsx` confirmation screen with a structured "What Happens Next" 3-step breakdown and Next.js `<Link>` navigation to `/services` and `/dashboard`.
-  - **Unit Test Coverage Expansion:** Added 3 targeted unit tests (85/85 passing across 11 test suites).
-  - **Browser E2E Suites:** Verified 27 passing tests (1 skipped mobile desktop-only fixture).
+  - Resolved LeadConnector event-identity collisions and payload conflict handling.
+  - Eliminated deceptive verification reporting in staging script.
+  - Prepared turnkey composite migration `supabase/migrations/APPLY_0006_AND_0007.sql`.
+- **Gemini Master Directive V19.0 Execution (Critical Safety & Verification Hardening):**
+  - **Eliminated Mutating RPC Migration Probes:** Removed dangerous calls (`approve_commercial_terms`, `set_system_environment`, `ingest_leadconnector_event`) from the verification script that could have accidentally promoted unapproved terms or flipped environment state.
+  - **Read-Only Metadata & Schema Audit (`lib/staging/read-only-audit.ts` & `scripts/read-only-audit.mjs`):** Built 100% read-only PostgREST OpenAPI metadata inspection evaluating tables, columns, RPC parameter signatures, and pure `SELECT` queries without any state mutation.
+  - **Semantic Payload Hashing for LeadConnector:** Implemented deterministic, key-sorted JSON canonicalization (`computeSemanticPayloadHash`) that filters transient transport metadata (e.g. `attempt`, `retryCount`), completely preventing false HTTP 409 Conflicts from webhook delivery retries or key reordering.
+  - **Layered Verification Architecture:** Re-architected `verify:staging` into 4 distinct verification layers (Layer A: Read-Only Audit; Layer B: Controlled Database Fixtures with Staging Safeguards; Layer C: External Provider Status; Layer D: Hosted Browser Acceptance Guidance).
+  - **Regression Test Suite:** Added 11 new automated regression tests (97/97 tests passing across 12 suites).
+- **Gemini Master Directive V20.0 Execution (Final Integration, Database Activation & Protected Staging):**
+  - **Git History Reconciliation:** Reconciled `origin/main` (commit `26dd3b0`) with `feature/v18-release-a-finalization` cleanly with zero merge conflicts.
+  - **Standalone Migration Audit CLI (`npm run audit:migrations`):** Created dedicated CLI tool `scripts/audit-migrations.mjs` executing strictly read-only inspection and writing `docs/migration-audit-report.json`.
+  - **Two-Level Verification Truth Architecture:** Clearly demarcated Level 1 (API Schema Verification via PostgREST OpenAPI) from Level 2 (PostgreSQL Catalog Verification via direct TCP). Accurately reports Level 2 as `BLOCKED (Requires direct PostgreSQL port 5432)` when direct database credentials are not configured, completely eliminating false catalog inspection claims.
+  - **Production Safety Hardening in Staging Runner:** Injected fail-closed check in `scripts/verify-staging.mjs` preventing any synthetic test execution if `NEXT_PUBLIC_APP_URL` or `PLAYWRIGHT_BASE_URL` targets `app.notrealengine.online`.
+  - **Run-Scoped User Cleanup:** Replaced broad email domain sweeps with run-scoped tracking (`cleanupAudit.trackedResources.authUsers`), proving 0 residual test users.
+  - **Expanded Test Coverage:** Added unit tests verifying two-level audit distinction and zero commercial side effects (99/99 Vitest tests passing across 12 suites).
 
 ## 3. Current verified repository and deployment
 | Area | Verified snapshot |
 |---|---|
-| GitHub main | **572c4501c16964449479dfd8d089b38185027ab9** (synced) |
-| Active feature branch | `feature/v18-release-a-finalization` |
+| GitHub main | **26dd3b0155202aa69ff73666953af2ba58396751** (PR #5 merged) |
+| Active feature branch | `feature/v18-release-a-finalization` (reconciled with main) |
 | Vercel project | **notrealengine** |
-| Latest Vercel deployment | **dpl_E6btjEpgWVHD46qMcBjJLEP3WLW4** — READY, **production** target, commit f6e19d0 |
+| Latest Vercel deployment | **dpl_E6btjEpgWVHD46qMcBjJLEP3WLW4** — READY, **production** target |
 | Public aliases | https://app.notrealengine.online and https://notrealengine.vercel.app |
 | Supabase staging project reference | **yamwmfgqqjwlfcjjkwzl** |
 | Remote database migration status | **0001–0005 APPLIED & VERIFIED**; **0006 & 0007 READY in APPLY_0006_AND_0007.sql** |
@@ -37,17 +45,28 @@ ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website an
 ## 4. Implementation and quality evidence
 - **TypeScript Typecheck:** PASS (0 errors).
 - **ESLint:** PASS (0 errors, 0 warnings; Next.js 16 Core Web Vitals & TypeScript rules).
-- **Unit & Regression Suite:** PASS (85/85 Vitest tests across 11 test suites).
+- **Unit & Regression Suite:** PASS (99/99 Vitest tests across 12 test suites).
 - **Next.js Production Build:** PASS (37/37 routes compiled).
-- **Staging Verification Suite:** 65 PASS, 2 BLOCKED (truthfully reporting pending remote execution of 0006/0007).
+- **Migration Audit CLI (`npm run audit:migrations`):** Level 1 API Schema evaluated, Level 2 Catalog truthfully reported as BLOCKED without port 5432, 0 mutating calls.
+- **Staging Verification Suite (`npm run verify:staging`):** 65 PASS, 3 BLOCKED (truthful signal: blocked solely on unapplied 0006/0007 migrations and unconfigured local webhook secret), 1 SKIPPED (live GHL delivery).
 - **Playwright Browser E2E:** 27 PASS, 1 SKIPPED (Chromium + Mobile Pixel 7).
 
-## 5. Outstanding founder-only actions (Priority Order)
+## 5. Migration-Readiness Record (APPLY_0006_AND_0007.sql)
+- **Target Database:** `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (PostgreSQL 15+).
+- **Current State:** Migrations 0001–0005 applied; `commercial_terms_versions` and base tables exist.
+- **Rollout File:** `supabase/migrations/APPLY_0006_AND_0007.sql` (32.9 KB).
+- **Transaction Safety:** Wrapped inside explicit `BEGIN ... COMMIT` block.
+- **Idempotency:** Guarded with `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, and `DROP POLICY IF EXISTS`.
+- **Fail-Closed Default:** Seeds `public.system_environment` with `('current', 'production', false)` so runtime strictly rejects synthetic transactions until explicitly toggled by super_admin in staging.
+- **Permissions:** `ingest_leadconnector_event` restricted strictly to `service_role` (revoked from `public`, `anon`, `authenticated`).
+- **Post-Application Verification:** Run `npm run audit:migrations` followed by `npm run verify:staging` to observe all migration audit checks transition immediately from `BLOCKED` to `PASS`.
+
+## 6. Outstanding founder-only actions (Priority Order)
 1. **Apply Migrations 0006 & 0007 in Supabase SQL Editor:** Paste and run `supabase/migrations/APPLY_0006_AND_0007.sql` in project `yamwmfgqqjwlfcjjkwzl`.
 2. **Configure Vercel Environment Variables:** In Vercel Project Settings, set `LEADCONNECTOR_WEBHOOK_SECRET`, `RATE_LIMIT_SECRET`, and set `ENGINE_OS_ENV=staging` on Preview vs `ENGINE_OS_ENV=production` on Production.
 3. **Promote Founder Super-Admin Account:** Run `node scripts/promote-founder-admin.mjs --email <founder-email>` once signed up.
 
-## 6. Release posture
+## 7. Release posture
 - **Release A (lead acquisition + quotation drafting):** Code fully implemented, tested, and polished; **release approval pending** founder database execution, Vercel secrets configuration, and founder launch sign-off.
 - **Release B (binding quote/order + client delivery):** Implemented and verified in non-binding staging mode; **held** for production legal/financial governance.
 - **Release C (gateway payments + automated notifications):** Adapters exist; **intentionally disabled** by policy.

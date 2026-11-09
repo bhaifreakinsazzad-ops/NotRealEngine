@@ -212,6 +212,62 @@ function sanitizeCustomData(custom: unknown): Record<string, unknown> | undefine
   return sanitized;
 }
 
+/**
+ * Canonicalizes an arbitrary JSON-compatible value by sorting object keys lexicographically
+ * and filtering out transient transport metadata.
+ */
+function canonicalizeValue(val: unknown): unknown {
+  if (val === null || typeof val !== "object") {
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map(canonicalizeValue);
+  }
+  const obj = val as Record<string, unknown>;
+  const transientKeys = new Set([
+    "_delivery_attempt",
+    "attempt",
+    "retryCount",
+    "deliveryTimestamp",
+    "webhookId",
+    "request_id",
+    "trace_id"
+  ]);
+  const sortedKeys = Object.keys(obj)
+    .filter((k) => !transientKeys.has(k))
+    .sort();
+  const result: Record<string, unknown> = {};
+  for (const k of sortedKeys) {
+    result[k] = canonicalizeValue(obj[k]);
+  }
+  return result;
+}
+
+/**
+ * Computes a deterministic SHA-256 hash of the semantic payload.
+ * Guarantees that key reordering, JSON formatting, or transport retry metadata
+ * do NOT trigger false 409 Conflicts. Real data contradictions on the same
+ * event ID will continue to be detected accurately.
+ */
+export function computeSemanticPayloadHash(
+  sanitizedPayload: Record<string, unknown>,
+  contactName: string,
+  contactEmail: string,
+  contactPhone: string,
+  serviceId: string | null
+): string {
+  const semanticData = {
+    contactEmail: contactEmail.toLowerCase().trim(),
+    contactName: contactName.trim(),
+    contactPhone: contactPhone.trim(),
+    serviceId: serviceId || null,
+    payload: canonicalizeValue(sanitizedPayload)
+  };
+
+  const canonicalJson = JSON.stringify(semanticData);
+  return crypto.createHash("sha256").update(canonicalJson).digest("hex");
+}
+
 export async function GET(request: NextRequest) {
   return NextResponse.json({
     status: "active",
@@ -320,7 +376,6 @@ export async function POST(request: NextRequest) {
     // 7. Event Identity for Idempotency
     const contactKey = contactEmail || contactPhone;
     const { providerEventId, providerEventSeed } = deriveProviderEventId(body, eventType, contactKey);
-    const payloadHash = crypto.createHash("sha256").update(rawBody).digest("hex");
 
     // 8. Canonical Service Resolution
     // Only use a canonical service id if the provider explicitly sent one; the RPC itself
@@ -341,7 +396,52 @@ export async function POST(request: NextRequest) {
     const randomHex = crypto.randomBytes(3).toString("hex").toUpperCase();
     const reference = `GHL-${eventCode}-${randomHex}`;
 
-    // 10. Atomic, Idempotent Ingestion via Supabase RPC with Data Minimization
+    // 10. Construct Sanitized Payload & Attribution (Data Minimization)
+    const sanitizedPayload: Record<string, unknown> = {
+      rawEvent: eventType,
+      appointment: body.appointment
+        ? {
+            id: body.appointment.id,
+            startTime: body.appointment.startTime,
+            endTime: body.appointment.endTime,
+            title: body.appointment.title,
+            calendarName: body.appointment.calendarName,
+            address: body.appointment.address
+          }
+        : undefined,
+      form: body.form
+        ? {
+            formId: body.form.id || body.form.formId,
+            formName: body.form.formName,
+            fields: sanitizeFormFields(body.form.fields)
+          }
+        : undefined,
+      notes: (body.notes || body.message || "").slice(0, 2000),
+      customData: sanitizeCustomData(body.customData),
+      ingestedVia: "leadconnector_webhook_v19"
+    };
+
+    const attributionData: Record<string, unknown> = {
+      source: normalizedSource,
+      provider: "leadconnector",
+      providerReference: providerEventSeed,
+      utm_source: body.utm_source,
+      utm_medium: body.utm_medium,
+      utm_campaign: body.utm_campaign,
+      utm_content: body.utm_content,
+      utm_term: body.utm_term
+    };
+
+    // 11. Compute Semantic Payload Hash (eliminates false 409 on whitespace/key-ordering/retry metadata)
+    const payloadHash = computeSemanticPayloadHash(
+      sanitizedPayload,
+      contactName,
+      contactEmail,
+      contactPhone,
+      requestedServiceId
+    );
+
+    // 12. Atomic, Idempotent Ingestion via Supabase RPC
     const supabase = getServiceRoleClient();
     const { data: result, error: rpcErr } = await supabase.rpc("ingest_leadconnector_event", {
       p_provider_event_id: providerEventId,
@@ -352,39 +452,8 @@ export async function POST(request: NextRequest) {
       p_contact_email: contactEmail || null,
       p_contact_phone: contactPhone || null,
       p_organization_name: orgName,
-      p_payload: {
-        rawEvent: eventType,
-        appointment: body.appointment
-          ? {
-              id: body.appointment.id,
-              startTime: body.appointment.startTime,
-              endTime: body.appointment.endTime,
-              title: body.appointment.title,
-              calendarName: body.appointment.calendarName,
-              address: body.appointment.address
-            }
-          : undefined,
-        form: body.form
-          ? {
-              formId: body.form.id || body.form.formId,
-              formName: body.form.formName,
-              fields: sanitizeFormFields(body.form.fields)
-            }
-          : undefined,
-        notes: (body.notes || body.message || "").slice(0, 2000),
-        customData: sanitizeCustomData(body.customData),
-        ingestedVia: "leadconnector_webhook_v18"
-      },
-      p_attribution: {
-        source: normalizedSource,
-        provider: "leadconnector",
-        providerReference: providerEventSeed,
-        utm_source: body.utm_source,
-        utm_medium: body.utm_medium,
-        utm_campaign: body.utm_campaign,
-        utm_content: body.utm_content,
-        utm_term: body.utm_term
-      }
+      p_payload: sanitizedPayload,
+      p_attribution: attributionData
     });
 
     if (rpcErr || !result) {
