@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "generatedAt": "2026-11-09T20:59:43.166Z",
+    "generatedAt": "2026-11-09T22:12:51.301Z",
     "platform": "ENGINE//OS",
     "auditVersion": "V21.0",
     "targetHost": "https://yamwmfgqqjwlfcjjkwzl.supabase.co",
@@ -129,7 +129,7 @@
       "id": "current",
       "environment": "production",
       "is_synthetic_allowed": false,
-      "updated_at": "2026-11-09T20:35:58.570682+00:00"
+      "updated_at": "2026-11-09T21:06:46.032+00:00"
     },
     "commercialTermsVersions": [
       {

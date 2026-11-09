@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
+import { validateStagingSafetyPreflight } from "../../lib/staging/staging-preflight";
 
 function loadEnv() {
   for (const envFile of [".env.local", ".env"]) {
@@ -123,18 +124,25 @@ test.describe("Authenticated Browser E2E Journeys (Journeys B–F against Live S
     let stagingQuoteId: string | null = null;
     let createdOrderId: string | null = null;
     let createdProjectId: string | null = null;
-    let restoredDbEnv: { environment: string; is_synthetic_allowed: boolean } | null = null;
 
     try {
-      // Temporarily switch system_environment to staging if currently production (enables non-binding synthetic quote acceptance in E2E)
-      const { data: remoteSysEnv } = await adminClient.from("system_environment").select("*").eq("id", "current").maybeSingle();
-      if (remoteSysEnv && remoteSysEnv.environment === "production" && !remoteSysEnv.is_synthetic_allowed) {
-        await adminClient.from("system_environment").update({
-          environment: "staging",
-          is_synthetic_allowed: true,
-          updated_at: new Date().toISOString()
-        }).eq("id", "current");
-        restoredDbEnv = { environment: remoteSysEnv.environment, is_synthetic_allowed: remoteSysEnv.is_synthetic_allowed };
+      // Execute Shared Staging Safety Preflight (Directive V23.1 Section 4)
+      // Inspect remote system_environment in read-only mode — NEVER mutate it
+      const { data: remoteSysEnv } = await adminClient.from("system_environment").select("environment, is_synthetic_allowed").eq("id", "current").maybeSingle();
+
+      const preflight = validateStagingSafetyPreflight({
+        engineEnv: process.env.ENGINE_OS_ENV,
+        supabaseUrl,
+        playwrightBaseUrl: process.env.PLAYWRIGHT_BASE_URL,
+        allowMutationFlag: true, // test runner is explicitly executing browser E2E
+        allowMutationEnv: process.env.ALLOW_STAGING_MUTATION,
+        dbEnvironmentState: remoteSysEnv
+      });
+
+      if (!preflight.allowed) {
+        console.warn(`[E2E Safety Guard] Browser E2E mutating lifecycle SKIPPED: ${preflight.reason}`);
+        test.skip(true, `Staging safety preflight blocked: ${preflight.reason}`);
+        return;
       }
 
       // 1. Provision Staff, Customer A, and Customer B
@@ -388,15 +396,6 @@ test.describe("Authenticated Browser E2E Journeys (Journeys B–F against Live S
         } else {
           await adminClient.auth.admin.deleteUser(uid);
         }
-      }
-
-      // Restore system_environment if toggled
-      if (restoredDbEnv) {
-        await adminClient.from("system_environment").update({
-          environment: restoredDbEnv.environment,
-          is_synthetic_allowed: restoredDbEnv.is_synthetic_allowed,
-          updated_at: new Date().toISOString()
-        }).eq("id", "current");
       }
     }
   });
