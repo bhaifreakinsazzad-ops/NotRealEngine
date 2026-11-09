@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "generatedAt": "2026-11-09T20:28:16.968Z",
+    "generatedAt": "2026-11-09T20:59:43.166Z",
     "platform": "ENGINE//OS",
     "auditVersion": "V21.0",
     "targetHost": "https://yamwmfgqqjwlfcjjkwzl.supabase.co",
@@ -10,11 +10,11 @@
   "overallVerdict": {
     "status": "BLOCKED",
     "exitCode": 1,
-    "summary": "Audit incomplete: API schema migrations pending and PostgreSQL direct catalog verification blocked."
+    "summary": "Audit incomplete: API schema verified, but PostgreSQL catalog verification is BLOCKED (direct port 5432 required)."
   },
   "twoLevelVerification": {
     "level1ApiSchemaVerification": {
-      "status": "BLOCKED",
+      "status": "PASS",
       "migration0005": {
         "migrationId": "202611080005",
         "title": "Quotation & Order Governance",
@@ -51,60 +51,60 @@
       "migration0006": {
         "migrationId": "202611080006",
         "title": "Terms Environment & Founder Governance",
-        "allObjectsApplied": false,
-        "status": "BLOCKED",
+        "allObjectsApplied": true,
+        "status": "PASS",
         "objects": {
           "system_environment_table": {
             "name": "system_environment",
             "type": "table",
             "expected": "Table with id, environment, is_synthetic_allowed columns",
-            "found": null,
-            "status": "PENDING",
-            "details": "Table missing in remote schema cache"
+            "found": "Table present with id, environment, is_synthetic_allowed, updated_at, updated_by",
+            "status": "APPLIED",
+            "details": "Live state: environment=production, synthetic_allowed=false"
           },
           "approve_commercial_terms_rpc": {
             "name": "approve_commercial_terms",
             "type": "rpc",
             "expected": "RPC with parameter p_version (and p_reference)",
-            "found": null,
-            "status": "PENDING",
-            "details": "RPC not exposed or missing in schema"
+            "found": "RPC present with parameters: p_notes, p_reference, p_version",
+            "status": "APPLIED",
+            "details": "PostgREST endpoint verified"
           },
           "set_system_environment_rpc": {
             "name": "set_system_environment",
             "type": "rpc",
             "expected": "RPC with parameters p_environment, p_allow_synthetic",
-            "found": null,
-            "status": "PENDING",
-            "details": "RPC not exposed or missing in schema"
+            "found": "RPC present with parameters: p_allow_synthetic, p_environment",
+            "status": "APPLIED",
+            "details": "PostgREST endpoint verified"
           }
         },
-        "summary": "Migration 0006 is pending execution in Supabase Dashboard SQL Editor"
+        "summary": "All Migration 0006 environment governance tables and RPCs verified"
       },
       "migration0007": {
         "migrationId": "202611080007",
         "title": "LeadConnector Ingestion Integrity",
-        "allObjectsApplied": false,
-        "status": "BLOCKED",
+        "allObjectsApplied": true,
+        "status": "PASS",
         "objects": {
           "webhook_events_fk_columns": {
             "name": "webhook_events (project_brief_id, lead_id)",
             "type": "column",
             "expected": "Foreign key columns linking webhook_events to project_briefs and leads",
-            "found": "Missing columns (found: id, provider, provider_event_id, payload_hash, state, processed_at, created_at)",
-            "status": "PENDING",
-            "details": "Columns not yet added to webhook_events"
+            "found": "Both project_brief_id and lead_id columns verified",
+            "status": "APPLIED",
+            "details": "Relational provenance columns present"
           },
           "ingest_leadconnector_event_rpc": {
             "name": "ingest_leadconnector_event",
             "type": "rpc",
             "expected": "RPC with parameters p_provider_event_id, p_payload_hash, p_reference",
-            "found": null,
-            "status": "PENDING",
-            "details": "RPC not exposed or missing in schema"
+            "found": "RPC present with parameters: p_attribution, p_contact_email, p_contact_name, p_contact_phone, p_organization_name, p_payload, p_payload_hash, p_provider_event_id, p_reference, p_service_id",
+            "status": "APPLIED",
+            "details": "PostgREST endpoint verified"
           }
         },
-        "summary": "Migration 0007 is pending execution in Supabase Dashboard SQL Editor"
+        "summary": "All Migration 0007 ingestion RPCs and webhook provenance columns verified"
       }
     },
     "level2PostgreSqlCatalogVerification": {
@@ -125,7 +125,12 @@
     }
   },
   "databaseState": {
-    "systemEnvironment": null,
+    "systemEnvironment": {
+      "id": "current",
+      "environment": "production",
+      "is_synthetic_allowed": false,
+      "updated_at": "2026-11-09T20:35:58.570682+00:00"
+    },
     "commercialTermsVersions": [
       {
         "version": "ENGINE//OS-TERMS-V1.0",
