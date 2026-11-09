@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   executeReadOnlyMigrationAudit,
+  executePostgresCatalogAudit,
+  evaluateOverallAuditStatus,
   inspectMigration0005,
   inspectMigration0006,
   inspectMigration0007,
   type OpenApiSpec,
-  type ReadOnlyAuditClient
+  type ReadOnlyAuditClient,
+  type PostgresCatalogClient
 } from "@/lib/staging/read-only-audit";
 
 describe("Read-Only Migration Audit Security & Regression Suite (Directive V19.0)", () => {
@@ -433,5 +436,314 @@ describe("Read-Only Migration Audit Security & Regression Suite (Directive V19.0
     );
 
     expect(prohibitedOperations).toHaveLength(0);
+  });
+
+  // ===========================================================================
+  // DIRECTIVE V21.0 POSTGRESQL CATALOG VERIFICATION & AUDIT READINESS REGRESSION
+  // ===========================================================================
+
+  function createMockCatalogClient(overrides: {
+    dbName?: string;
+    omitFunction?: string;
+    mismatchSignature?: boolean;
+    omitGrant?: boolean;
+    anonGrant?: boolean;
+    omitTrigger?: boolean;
+    omitPolicy?: boolean;
+    queryError?: Error;
+  } = {}): { client: PostgresCatalogClient; queriesExecuted: string[] } {
+    const queriesExecuted: string[] = [];
+
+    const client: PostgresCatalogClient = {
+      query: async (sql: string) => {
+        queriesExecuted.push(sql);
+
+        if (overrides.queryError) {
+          throw overrides.queryError;
+        }
+
+        const s = sql.toLowerCase();
+
+        if (s.includes("current_database()")) {
+          return {
+            rows: [
+              {
+                db: overrides.dbName || "postgres",
+                usr: "postgres",
+                ver: "PostgreSQL 15.6 on x86_64"
+              }
+            ]
+          };
+        }
+
+        if (s.includes("supabase_migrations.schema_migrations")) {
+          return {
+            rows: [
+              { version: "202611080001" },
+              { version: "202611080005" },
+              { version: "202611080006" },
+              { version: "202611080007" }
+            ]
+          };
+        }
+
+        if (s.includes("from information_schema.tables")) {
+          return {
+            rows: [
+              { table_name: "commercial_terms_versions" },
+              { table_name: "system_environment" },
+              { table_name: "project_briefs" },
+              { table_name: "leads" },
+              { table_name: "orders" },
+              { table_name: "webhook_events" }
+            ]
+          };
+        }
+
+        if (s.includes("from information_schema.columns")) {
+          return {
+            rows: [
+              { table_name: "commercial_terms_versions", column_name: "version", is_nullable: "NO" },
+              { table_name: "commercial_terms_versions", column_name: "document_id", is_nullable: "NO" },
+              { table_name: "commercial_terms_versions", column_name: "classification", is_nullable: "NO" },
+              { table_name: "system_environment", column_name: "id", is_nullable: "NO" },
+              { table_name: "system_environment", column_name: "environment", is_nullable: "NO" },
+              { table_name: "system_environment", column_name: "is_synthetic_allowed", is_nullable: "NO" },
+              { table_name: "project_briefs", column_name: "service_id", is_nullable: "YES" },
+              { table_name: "webhook_events", column_name: "project_brief_id", is_nullable: "YES" },
+              { table_name: "webhook_events", column_name: "lead_id", is_nullable: "YES" }
+            ]
+          };
+        }
+
+        if (s.includes("from pg_proc")) {
+          const rows = [
+            {
+              proname: "decide_quote",
+              args: overrides.mismatchSignature ? "p_wrong_id uuid" : "p_quote_id uuid, p_decision text",
+              is_security_definer: true
+            },
+            {
+              proname: "initialize_project_from_order",
+              args: "p_order_id uuid",
+              is_security_definer: true
+            },
+            {
+              proname: "current_user_is_super_admin",
+              args: "",
+              is_security_definer: true
+            },
+            {
+              proname: "set_system_environment",
+              args: "p_environment text",
+              is_security_definer: true
+            },
+            {
+              proname: "approve_commercial_terms",
+              args: "p_version text",
+              is_security_definer: true
+            },
+            {
+              proname: "ingest_leadconnector_event",
+              args: "p_provider_event_id text, p_payload_hash text",
+              is_security_definer: true
+            }
+          ];
+          return {
+            rows: overrides.omitFunction ? rows.filter((r) => r.proname !== overrides.omitFunction) : rows
+          };
+        }
+
+        if (s.includes("from information_schema.routine_privileges")) {
+          if (overrides.omitGrant) {
+            return { rows: [] };
+          }
+          if (overrides.anonGrant) {
+            return {
+              rows: [
+                { routine_name: "ingest_leadconnector_event", grantee: "service_role", privilege_type: "EXECUTE" },
+                { routine_name: "ingest_leadconnector_event", grantee: "anon", privilege_type: "EXECUTE" }
+              ]
+            };
+          }
+          return {
+            rows: [
+              { routine_name: "ingest_leadconnector_event", grantee: "service_role", privilege_type: "EXECUTE" },
+              { routine_name: "decide_quote", grantee: "authenticated", privilege_type: "EXECUTE" }
+            ]
+          };
+        }
+
+        if (s.includes("from pg_trigger")) {
+          if (overrides.omitTrigger) {
+            return { rows: [] };
+          }
+          return {
+            rows: [{ tgname: "trg_order_financial_clearance", table_name: "orders" }]
+          };
+        }
+
+        if (s.includes("from pg_policies")) {
+          if (overrides.omitPolicy) {
+            return { rows: [] };
+          }
+          return {
+            rows: [{ polname: "system_env_read_policy", tablename: "system_environment" }]
+          };
+        }
+
+        if (s.includes("from information_schema.table_constraints")) {
+          return {
+            rows: [
+              { table_name: "webhook_events", column_name: "project_brief_id", foreign_table_name: "project_briefs" },
+              { table_name: "webhook_events", column_name: "lead_id", foreign_table_name: "leads" }
+            ]
+          };
+        }
+
+        return { rows: [] };
+      }
+    };
+
+    return { client, queriesExecuted };
+  }
+
+  // Regression Test 1: Connection string present but SQL query not executed -> not PASS
+  it("V21.1: proves that having a connection string without executing queries does not yield PASS", async () => {
+    // Calling with null/undefined returns BLOCKED, never PASS
+    const result = await executePostgresCatalogAudit(null);
+    expect(result.status).toBe("BLOCKED");
+    expect(result.status).not.toBe("PASS");
+  });
+
+  // Regression Test 2: Incorrect database identity -> FAIL
+  it("V21.2: fails when database identity does not match expected database name", async () => {
+    const { client } = createMockCatalogClient({ dbName: "wrong_production_db" });
+    const result = await executePostgresCatalogAudit(client, "postgres_staging");
+    expect(result.status).toBe("FAIL");
+    expect(result.summary).toContain("Database identity mismatch");
+  });
+
+  // Regression Test 3: Connection refused -> BLOCKED
+  it("V21.3: reports BLOCKED when connection is refused (ECONNREFUSED)", async () => {
+    const connErr = new Error("connect ECONNREFUSED 127.0.0.1:5432");
+    const { client } = createMockCatalogClient({ queryError: connErr });
+    const result = await executePostgresCatalogAudit(client);
+    expect(result.status).toBe("BLOCKED");
+    expect(result.summary).toContain("ECONNREFUSED");
+  });
+
+  // Regression Test 4: Missing required function -> FAIL / NOT_APPLIED
+  it("V21.4: fails when required function (decide_quote) is missing from pg_proc", async () => {
+    const { client } = createMockCatalogClient({ omitFunction: "decide_quote" });
+    const result = await executePostgresCatalogAudit(client);
+    expect(result.status).not.toBe("PASS");
+    expect(result.migration0005.objects["decide_quote"].status).toBe("NOT_APPLIED");
+  });
+
+  // Regression Test 5: Incorrect function signature -> MISMATCH
+  it("V21.5: reports MISMATCH when function signature differs from migration", async () => {
+    const { client } = createMockCatalogClient({ mismatchSignature: true });
+    const result = await executePostgresCatalogAudit(client);
+    expect(result.status).toBe("MISMATCH");
+    expect(result.migration0005.objects["decide_quote"].status).toBe("MISMATCH");
+  });
+
+  // Regression Test 6: Missing required grant -> FAIL
+  it("V21.6: fails when required grant on ingest_leadconnector_event is missing or granted to anon", async () => {
+    const { client: omitGrantClient } = createMockCatalogClient({ omitGrant: true });
+    const omitResult = await executePostgresCatalogAudit(omitGrantClient);
+    expect(omitResult.migration0007.objects["ingest_leadconnector_event_grants"].status).toBe("NOT_APPLIED");
+
+    const { client: anonGrantClient } = createMockCatalogClient({ anonGrant: true });
+    const anonResult = await executePostgresCatalogAudit(anonGrantClient);
+    expect(anonResult.migration0007.objects["ingest_leadconnector_event_grants"].status).toBe("FAIL");
+  });
+
+  // Regression Test 7: Missing trigger -> FAIL / NOT_APPLIED
+  it("V21.7: fails when financial clearance trigger is missing from orders table", async () => {
+    const { client } = createMockCatalogClient({ omitTrigger: true });
+    const result = await executePostgresCatalogAudit(client);
+    expect(result.migration0006.objects["trg_order_financial_clearance"].status).toBe("NOT_APPLIED");
+  });
+
+  // Regression Test 8: Missing RLS policy -> FAIL / NOT_APPLIED
+  it("V21.8: fails when RLS policies are missing from system_environment", async () => {
+    const { client } = createMockCatalogClient({ omitPolicy: true });
+    const result = await executePostgresCatalogAudit(client);
+    expect(result.migration0006.objects["system_environment_policies"].status).toBe("NOT_APPLIED");
+  });
+
+  // Regression Test 9: Catalog verification succeeds -> PASS
+  it("V21.9: produces PASS when all catalog objects, functions, triggers, and grants are verified", async () => {
+    const { client } = createMockCatalogClient();
+    const result = await executePostgresCatalogAudit(client);
+    expect(result.status).toBe("PASS");
+    expect(result.migration0005.status).toBe("PASS");
+    expect(result.migration0006.status).toBe("PASS");
+    expect(result.migration0007.status).toBe("PASS");
+    expect(result.databaseIdentity?.database).toBe("postgres");
+  });
+
+  // Regression Test 10: API-level PASS + catalog BLOCKED -> overall BLOCKED
+  it("V21.10: evaluates overall status as BLOCKED when API is PASS but catalog is BLOCKED", () => {
+    const mockLevel1 = {
+      success: true,
+      blocked: false,
+      migration0005: { migrationId: "202611080005", title: "0005", allObjectsApplied: true, status: "PASS" as const, objects: {}, summary: "ok" },
+      migration0006: { migrationId: "202611080006", title: "0006", allObjectsApplied: true, status: "PASS" as const, objects: {}, summary: "ok" },
+      migration0007: { migrationId: "202611080007", title: "0007", allObjectsApplied: true, status: "PASS" as const, objects: {}, summary: "ok" }
+    };
+    const mockLevel2 = {
+      status: "BLOCKED" as const,
+      summary: "Direct catalog inspection blocked (no port 5432 credentials)",
+      migration0005: { status: "NOT_APPLIED" as const, objects: {} },
+      migration0006: { status: "NOT_APPLIED" as const, objects: {} },
+      migration0007: { status: "NOT_APPLIED" as const, objects: {} }
+    };
+
+    const overall = evaluateOverallAuditStatus(mockLevel1, mockLevel2);
+    expect(overall.overallStatus).toBe("BLOCKED");
+    expect(overall.exitCode).toBe(1);
+    expect(overall.overallStatus).not.toBe("PASS");
+  });
+
+  // Regression Test 11: API-level PASS + catalog FAIL -> overall FAIL
+  it("V21.11: evaluates overall status as FAIL when API is PASS but catalog is FAIL", () => {
+    const mockLevel1 = {
+      success: true,
+      blocked: false,
+      migration0005: { migrationId: "202611080005", title: "0005", allObjectsApplied: true, status: "PASS" as const, objects: {}, summary: "ok" },
+      migration0006: { migrationId: "202611080006", title: "0006", allObjectsApplied: true, status: "PASS" as const, objects: {}, summary: "ok" },
+      migration0007: { migrationId: "202611080007", title: "0007", allObjectsApplied: true, status: "PASS" as const, objects: {}, summary: "ok" }
+    };
+    const mockLevel2 = {
+      status: "FAIL" as const,
+      summary: "Missing required function decide_quote in pg_proc",
+      migration0005: { status: "FAIL" as const, objects: {} },
+      migration0006: { status: "PASS" as const, objects: {} },
+      migration0007: { status: "PASS" as const, objects: {} }
+    };
+
+    const overall = evaluateOverallAuditStatus(mockLevel1, mockLevel2);
+    expect(overall.overallStatus).toBe("FAIL");
+    expect(overall.exitCode).toBe(1);
+  });
+
+  // Regression Test 12: No audit operation modifies business data
+  it("V21.12: guarantees catalog audit performs zero mutations and maintains read-only transaction", async () => {
+    const { client, queriesExecuted } = createMockCatalogClient();
+    await executePostgresCatalogAudit(client);
+
+    // Verify session explicitly set to read only
+    expect(queriesExecuted).toContain("BEGIN TRANSACTION READ ONLY;");
+    expect(queriesExecuted).toContain("COMMIT;");
+
+    // Verify absolutely no INSERT, UPDATE, or DELETE queries
+    const mutatingQueries = queriesExecuted.filter((q) => {
+      const s = q.toUpperCase();
+      return s.includes("INSERT INTO") || s.includes("UPDATE ") || s.includes("DELETE FROM");
+    });
+    expect(mutatingQueries).toHaveLength(0);
   });
 });
