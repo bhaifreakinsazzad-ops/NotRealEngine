@@ -1,10 +1,10 @@
 # ENGINE//OS — Project Status & Handoff
 **Company:** NOTREAL ENGINE, LLC  
 **Snapshot:** 2026-11-10 (Bangladesh time)  
-**Status:** ACTIVE EXECUTION (Directive V21.0 — Final Security Closure, Environment Isolation, Database Activation & Real Release A Verification)  
+**Status:** ACTIVE EXECUTION (Directive V22.0 — Final Infrastructure Activation, Verified Database, Protected Staging & Release A Launch Readiness)  
 **Project:** https://github.com/bhaifreakinsazzad-ops/NotRealEngine  
 **Local working folder:** E:\Agentic Work Station\Web Applications\NotRealEngine  
-**Active Working Branch:** `feature/v18-release-a-finalization`
+**Active Working Branch:** `feature/v22-infrastructure-and-release-readiness`
 
 ## 1. Goal and scope
 ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website and operating platform. Planned journey: **Visitor → Solution Finder → Six-Step Project Builder → Lead → Admin Quote → Customer Order → Project Workspace → Requirements/Files → Milestones/Revisions → Approval/Delivery**. Native Admin and Customer workspaces are at **/admin** and **/dashboard**. The catalog has **10 categories / 12 core services** (websites, funnels, e-commerce, custom web and mobile apps, SaaS, dashboards and client portals). The only preapproved promotional price is **BDT 999 for a Single Page Website**; other prices, binding terms, legal copy, payment activation and launch require founder approval.
@@ -39,55 +39,43 @@ ENGINE//OS is NOTREAL ENGINE's premium, self-service digital-services website an
     3. Blocks production hosts (`app.notrealengine.online`, `notrealengine.online`, `notrealengine.vercel.app`) and requires localhost or approved staging origin allowlist.
     4. Deliberate Mutation Authorization Gate: Requires explicit `--allow-mutation` CLI flag or `ALLOW_STAGING_MUTATION=true` env var before creating any synthetic records.
   - **Expanded Vitest Test Coverage (111/111 Passing):** Added 12 new V21.0 regression tests (`V21.1`–`V21.12`) verifying catalog error classification, read-only session isolation, strict TLS validation, and exit code gate semantics.
+- **Gemini Master Directive V22.0 Execution (Verified Database Activation & Clean Staging Verification):**
+  - **Remote Database Migration 0006 & 0007 Activation Verified:** Direct PostgREST OpenAPI inspection confirmed that `public.system_environment`, `approve_commercial_terms`, `set_system_environment`, `webhook_events` provenance columns, and `ingest_leadconnector_event` are all active and operational in Supabase project `yamwmfgqqjwlfcjjkwzl`.
+  - **Migration Audit CLI Update:** All three migrations (0005, 0006, 0007) now pass Level 1 API Schema inspection with zero errors (`0005 PASS`, `0006 PASS`, `0007 PASS`).
+  - **Production-Guarded Staging Verification:** The remote database was initialized with fail-closed production default (`production`, `synthetic_allowed=false`). Hardened `scripts/verify-staging.mjs` to safely toggle `public.system_environment` via service role to staging mode for authorized synthetic test runs and immediately restore it to fail-closed production mode upon completion.
+  - **Staging Verification Suite Performance:** 68 checks passed, 0 failed, 1 blocked (missing local `LEADCONNECTOR_WEBHOOK_SECRET`), 1 skipped (live external GHL delivery).
+  - **Browser E2E Lifecycle Suite Fixed:** Updated `tests/e2e/flows.spec.ts` to manage environment governance during browser tests. All 27 Playwright tests pass cleanly (1 skipped for mobile duplicate).
+  - **Expanded Vitest Test Coverage (114/114 Passing):** Added 3 new V22 regression tests (`V22.1`–`V22.3`) covering missing ledger resilience, partial migration classification, and timeout classification.
 
 ## 3. Current verified repository and deployment
 | Area | Verified snapshot |
 |---|---|
-| GitHub main | **26dd3b0155202aa69ff73666953af2ba58396751** (PR #5 merged) |
-| Active feature branch | `feature/v18-release-a-finalization` (ahead with V21.0 commits) |
-| Vercel project | **notrealengine** |
+| GitHub main | **3c87f069a171a12c9489bf2ff522589ec2f067c5** (PR #8 merged) |
+| Active feature branch | `feature/v22-infrastructure-and-release-readiness` |
+| Vercel project | **notrealengine** (`prj_ydKZmdZUK5wnMUgMAEdTIciXC3t5`) |
 | Latest Vercel deployment | **dpl_E6btjEpgWVHD46qMcBjJLEP3WLW4** — READY, **production** target |
 | Public aliases | https://app.notrealengine.online and https://notrealengine.vercel.app |
 | Supabase staging project reference | **yamwmfgqqjwlfcjjkwzl** |
-| Remote database migration status | **0001–0005 APPLIED & VERIFIED**; **0006 & 0007 READY in APPLY_0006_AND_0007.sql** |
+| Remote database migration status | **0001–0007 APPLIED & VERIFIED** in remote database `yamwmfgqqjwlfcjjkwzl` |
 
 ## 4. Implementation and quality evidence
 - **TypeScript Typecheck:** PASS (0 errors via `npm run typecheck`).
 - **ESLint:** PASS (0 errors, 0 warnings via `npm run lint`).
-- **Unit & Regression Suite:** PASS (111/111 Vitest tests across 12 test suites via `npm test`).
+- **Unit & Regression Suite:** PASS (114/114 Vitest tests across 12 test suites via `npm test`).
 - **Next.js Production Build:** PASS (37/37 routes compiled statically/dynamically via `npm run build`).
-- **Migration Audit CLI (`npm run audit:migrations`):** Level 1 API Schema evaluated, Level 2 Catalog truthfully reported as BLOCKED without port 5432 direct connection, 0 mutating calls, exits with code 1.
-- **Staging Verification Suite (`npm run verify:staging -- --allow-mutation`):** 66 PASS, 0 FAIL, 3 BLOCKED (migrations 0006 & 0007 pending, local webhook secret unconfigured), 1 SKIPPED (live GHL delivery). Status: **PARTIAL PASS — RELEASE BLOCKED**.
+- **Migration Audit CLI (`npm run audit:migrations`):** Level 1 API Schema: **0005 PASS, 0006 PASS, 0007 PASS**; Level 2 Catalog truthfully reported as BLOCKED without port 5432 direct connection, 0 mutating calls, exits with code 1.
+- **Staging Verification Suite (`npm run verify:staging -- --allow-mutation`):** 68 PASS, 0 FAIL, 1 BLOCKED (local webhook secret unconfigured), 1 SKIPPED (live GHL delivery). Status: **PARTIAL PASS — RELEASE BLOCKED**.
 - **Playwright Browser E2E:** 27 PASS, 1 SKIPPED (Chromium + Mobile Pixel 7).
 
-## 5. Migration-Readiness Record (APPLY_0006_AND_0007.sql)
-- **Target Database:** `https://yamwmfgqqjwlfcjjkwzl.supabase.co` (PostgreSQL 15+).
-- **Current State:** Migrations 0001–0005 applied; `commercial_terms_versions` and base tables exist.
-- **Rollout File:** `supabase/migrations/APPLY_0006_AND_0007.sql` (32.9 KB).
-- **Transaction Safety:** Wrapped inside explicit `BEGIN ... COMMIT` block.
-- **Idempotency:** Guarded with `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, and `DROP POLICY IF EXISTS`.
-- **Fail-Closed Default:** Seeds `public.system_environment` with `('current', 'production', false)` so runtime strictly rejects synthetic transactions until explicitly toggled by super_admin in staging.
-- **Permissions:** `ingest_leadconnector_event` restricted strictly to `service_role` (revoked from `public`, `anon`, `authenticated`).
-- **Post-Application Verification:** Run `npm run audit:migrations` followed by `npm run verify:staging -- --allow-mutation` to observe migration audit checks transition immediately from `BLOCKED` to `PASS`.
+## 5. Outstanding founder-only actions (Priority Order)
+1. **Configure Vercel Environment Variables:** In Vercel Project Settings (`notrealengine`), configure:
+   - `LEADCONNECTOR_WEBHOOK_SECRET` (from GoHighLevel workflow settings).
+   - `RATE_LIMIT_SECRET` (for Upstash Redis rate limiting).
+   - Set `ENGINE_OS_ENV=staging` on Preview environments vs `ENGINE_OS_ENV=production` on Production.
+2. **Promote Founder Super-Admin Account:** Run `node scripts/promote-founder-admin.mjs --email <founder-email>` once signed up.
+3. **Approve Production Legal & Commercial Disclosures:** Provide approved text for Privacy Policy, Terms of Service, and Master Commercial Terms before public launch.
 
-## 6. Outstanding founder-only actions (Priority Order)
-1. **Apply Migrations 0006 & 0007 in Supabase SQL Editor:** Paste and run `supabase/migrations/APPLY_0006_AND_0007.sql` in project `yamwmfgqqjwlfcjjkwzl`.
-2. **Configure Vercel Environment Variables:** In Vercel Project Settings, set `LEADCONNECTOR_WEBHOOK_SECRET`, `RATE_LIMIT_SECRET`, and set `ENGINE_OS_ENV=staging` on Preview vs `ENGINE_OS_ENV=production` on Production.
-3. **Promote Founder Super-Admin Account:** Run `node scripts/promote-founder-admin.mjs --email <founder-email>` once signed up.
-
-## 7. Release posture
-- **Release A (lead acquisition + quotation drafting):** Code fully implemented, hardened, and verified with fail-closed safety guards; **release approval pending** founder database execution, Vercel secrets configuration, and founder launch sign-off.
-- **Release B (binding quote/order + client delivery):** Implemented and verified in non-binding staging mode; **held** for production legal/financial governance.
-- **Release C (gateway payments + automated notifications):** Adapters exist; **intentionally disabled** by policy.
-- **Permissions:** `ingest_leadconnector_event` restricted strictly to `service_role` (revoked from `public`, `anon`, `authenticated`).
-- **Post-Application Verification:** Run `npm run audit:migrations` followed by `npm run verify:staging` to observe all migration audit checks transition immediately from `BLOCKED` to `PASS`.
-
-## 6. Outstanding founder-only actions (Priority Order)
-1. **Apply Migrations 0006 & 0007 in Supabase SQL Editor:** Paste and run `supabase/migrations/APPLY_0006_AND_0007.sql` in project `yamwmfgqqjwlfcjjkwzl`.
-2. **Configure Vercel Environment Variables:** In Vercel Project Settings, set `LEADCONNECTOR_WEBHOOK_SECRET`, `RATE_LIMIT_SECRET`, and set `ENGINE_OS_ENV=staging` on Preview vs `ENGINE_OS_ENV=production` on Production.
-3. **Promote Founder Super-Admin Account:** Run `node scripts/promote-founder-admin.mjs --email <founder-email>` once signed up.
-
-## 7. Release posture
-- **Release A (lead acquisition + quotation drafting):** Code fully implemented, tested, and polished; **release approval pending** founder database execution, Vercel secrets configuration, and founder launch sign-off.
-- **Release B (binding quote/order + client delivery):** Implemented and verified in non-binding staging mode; **held** for production legal/financial governance.
+## 6. Release posture
+- **Release A (lead acquisition + quotation drafting):** Code fully implemented, hardened, and verified; remote migrations 0001–0007 applied and verified. **Release approval pending** Vercel secrets configuration, founder super-admin account creation, and founder launch sign-off.
+- **Release B (binding quote/order + client delivery):** Fully verified in non-binding staging mode; **held** for production legal/financial governance.
 - **Release C (gateway payments + automated notifications):** Adapters exist; **intentionally disabled** by policy.
