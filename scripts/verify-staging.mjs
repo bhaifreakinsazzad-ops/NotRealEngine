@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
 import { executeReadOnlyMigrationAudit } from "./read-only-audit.mjs";
+import { validateStagingSafetyPreflight } from "./staging-preflight.mjs";
 
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
@@ -483,12 +484,40 @@ async function runStagingVerification() {
   // =============================================================================
   console.log("\n" + bold("--- LAYER B: CONTROLLED DATABASE INTEGRATION TESTING (STAGING FIXTURES) ---"));
 
-  // Critical Safeguard: Verify exact staging target before executing state-mutating fixtures
-  if (engineEnv === "production" || !supabaseUrl.includes(APPROVED_STAGING_PROJECT_REF)) {
-    console.log(red("\nCRITICAL SAFETY GUARD: Halting before state-mutating Layer B execution. Never run mutating fixtures against production."));
+  // Check remote PostgreSQL system_environment governance state before executing synthetic fixtures (READ-ONLY)
+  const { data: remoteSysEnv } = await adminClient.from("system_environment").select("environment, is_synthetic_allowed").eq("id", "current").maybeSingle();
+
+  // Execute Shared Fail-Closed Staging Preflight (Directive V23.1 Section 4)
+  const preflight = validateStagingSafetyPreflight({
+    engineEnv,
+    supabaseUrl,
+    appUrl: process.env.NEXT_PUBLIC_APP_URL,
+    playwrightBaseUrl: process.env.PLAYWRIGHT_BASE_URL,
+    allowMutationFlag,
+    allowMutationEnv: process.env.ALLOW_STAGING_MUTATION,
+    approvedStagingProjectRef: APPROVED_STAGING_PROJECT_REF,
+    dbEnvironmentState: remoteSysEnv
+  });
+
+  if (!preflight.allowed) {
+    recordResult(
+      "SafetyGuard",
+      "Shared Staging Preflight Gate (Fail-Closed)",
+      "BLOCKED",
+      preflight.reason
+    );
+    console.log(red(`\nCRITICAL SAFETY GUARD (Preflight Failed): ${preflight.reason}`));
+    console.log(yellow("Halting before ANY state-mutating Layer B execution. Exactly zero privileged mutations performed."));
     printSummaryAndExit();
     return;
   }
+
+  recordResult(
+    "SafetyGuard",
+    "Shared Staging Preflight Gate (Fail-Closed)",
+    "PASS",
+    "Staging environment, target origin allowlist, deliberate mutation authorization, and database staging mode verified."
+  );
 
   const syntheticPayload = {
     serviceId: "SVC-01-SPW",

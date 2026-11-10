@@ -370,13 +370,16 @@ export async function executePostgresCatalogAudit(clientOrUrl, expectedDbName) {
 
     // 3. Query Supabase Migration Ledger
     let migrationsLedger = [];
+    let ledgerTablePresent = false;
     try {
       const ledgerRes = await client.query(`
         SELECT version FROM supabase_migrations.schema_migrations ORDER BY version;
       `);
       migrationsLedger = (ledgerRes.rows || []).map((r) => String(r.version));
+      ledgerTablePresent = true;
     } catch {
       // ledger table may not exist
+      ledgerTablePresent = false;
     }
 
     // 4. Query Tables in public schema
@@ -700,6 +703,7 @@ export async function executePostgresCatalogAudit(clientOrUrl, expectedDbName) {
         : `PostgreSQL catalog verification incomplete: 0005=${status0005}, 0006=${status0006}, 0007=${status0007}`,
       databaseIdentity: dbIdent,
       migrationsLedger,
+      ledgerTablePresent,
       migration0005: { status: status0005, objects: m0005Objects },
       migration0006: { status: status0006, objects: m0006Objects },
       migration0007: { status: status0007, objects: m0007Objects }

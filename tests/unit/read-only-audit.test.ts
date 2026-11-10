@@ -450,6 +450,7 @@ describe("Read-Only Migration Audit Security & Regression Suite (Directive V19.0
     anonGrant?: boolean;
     omitTrigger?: boolean;
     omitPolicy?: boolean;
+    omitLedgerTable?: boolean;
     queryError?: Error;
   } = {}): { client: PostgresCatalogClient; queriesExecuted: string[] } {
     const queriesExecuted: string[] = [];
@@ -477,6 +478,9 @@ describe("Read-Only Migration Audit Security & Regression Suite (Directive V19.0
         }
 
         if (s.includes("supabase_migrations.schema_migrations")) {
+          if (overrides.omitLedgerTable) {
+            throw new Error('relation "supabase_migrations.schema_migrations" does not exist');
+          }
           return {
             rows: [
               { version: "202611080001" },
@@ -745,5 +749,40 @@ describe("Read-Only Migration Audit Security & Regression Suite (Directive V19.0
       return s.includes("INSERT INTO") || s.includes("UPDATE ") || s.includes("DELETE FROM");
     });
     expect(mutatingQueries).toHaveLength(0);
+  });
+
+  // ===========================================================================
+  // DIRECTIVE V22.0 CATALOG & ENVIRONMENT REGRESSION EXPANSION
+  // ===========================================================================
+
+  it("V22.1: handles missing migration ledger gracefully and reports ledgerTablePresent = false", async () => {
+    const { client } = createMockCatalogClient({ omitLedgerTable: true });
+    const result = await executePostgresCatalogAudit(client);
+
+    expect(result.ledgerTablePresent).toBe(false);
+    expect(result.migrationsLedger).toEqual([]);
+    // Objects themselves are still evaluated correctly
+    expect(result.migration0005.status).toBe("PASS");
+  });
+
+  it("V22.2: flags partial migration 0006 with status NOT_APPLIED / FAIL when tables exist but functions missing", async () => {
+    const { client } = createMockCatalogClient({ omitFunction: "approve_commercial_terms" });
+    const result = await executePostgresCatalogAudit(client);
+
+    expect(result.migration0006.status).toBe("FAIL");
+    expect(result.migration0006.objects["approve_commercial_terms"].status).toBe("NOT_APPLIED");
+    expect(result.status).toBe("FAIL");
+  });
+
+  it("V22.3: distinguishes between catalog connection timeout (BLOCKED) vs SQL execution error (FAIL)", async () => {
+    const timeoutError = new Error("connection timeout after 5000ms");
+    const { client: timeoutClient } = createMockCatalogClient({ queryError: timeoutError });
+    const blockedRes = await executePostgresCatalogAudit(timeoutClient);
+    expect(blockedRes.status).toBe("BLOCKED");
+
+    const syntaxError = new Error("syntax error at or near 'SELECT'");
+    const { client: syntaxClient } = createMockCatalogClient({ queryError: syntaxError });
+    const failRes = await executePostgresCatalogAudit(syntaxClient);
+    expect(failRes.status).toBe("FAIL");
   });
 });
