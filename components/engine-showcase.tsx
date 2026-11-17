@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize2, Sparkles, Activity } from "lucide-react";
 
 interface EngineShowcaseProps {
@@ -8,6 +8,20 @@ interface EngineShowcaseProps {
   subtitle?: string;
   autoPlay?: boolean;
   compact?: boolean;
+}
+
+function subscribeReducedMotion(callback: () => void) {
+  const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  motionQuery.addEventListener("change", callback);
+  return () => motionQuery.removeEventListener("change", callback);
+}
+
+function getReducedMotionSnapshot() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function getReducedMotionServerSnapshot() {
+  return false;
 }
 
 export function EngineShowcase({
@@ -18,35 +32,36 @@ export function EngineShowcase({
 }: EngineShowcaseProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
+  const prefersReducedMotion = useSyncExternalStore(
+    subscribeReducedMotion,
+    getReducedMotionSnapshot,
+    getReducedMotionServerSnapshot
+  );
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    // Respect user's motion preferences per modern web guidance
-    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (motionQuery.matches) {
-      if (videoRef.current) {
-        videoRef.current.pause();
-      }
+    const video = videoRef.current;
+    if (!video) return;
+    if (prefersReducedMotion) {
+      video.pause();
+    } else if (autoPlay && video.paused) {
+      video.play().catch(() => {});
     }
+  }, [autoPlay, prefersReducedMotion]);
 
-    const handleMotionChange = (e: MediaQueryListEvent) => {
-      setPrefersReducedMotion(e.matches);
-      if (e.matches && videoRef.current) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      }
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
     };
-
-    motionQuery.addEventListener("change", handleMotionChange);
-    return () => motionQuery.removeEventListener("change", handleMotionChange);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
   const togglePlay = () => {
     if (!videoRef.current) return;
-    if (isPlaying) {
+    if (!videoRef.current.paused) {
       videoRef.current.pause();
       setIsPlaying(false);
     } else {
@@ -86,7 +101,7 @@ export function EngineShowcase({
           </div>
         </div>
 
-        {/* Video Element compliant with modern-web-guidance (lazy-load-video-and-audio) */}
+        {/* Video Element with metadata preload and reduced-motion compliance */}
         <div className="video-viewport">
           <video
             ref={videoRef}
@@ -102,7 +117,6 @@ export function EngineShowcase({
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
             aria-label="NOTREAL ENGINE Showcase Reel"
-            {...({ loading: "lazy" } as Record<string, unknown>)}
           />
 
           {/* Ambient Cyber Neon Gradient Overlay */}

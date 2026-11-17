@@ -38,7 +38,7 @@ export default async function SupportPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: "2rem", marginTop: "1.5rem", alignItems: "start" }}>
+      <div className="app-grid-wide" style={{ marginTop: "1.5rem" }}>
         {/* Ticket History */}
         <div className="panel">
           <div className="panel-head">

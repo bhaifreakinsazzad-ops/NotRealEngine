@@ -162,12 +162,14 @@ export default async function AdminOrdersPage({
             <tbody>
               {orders && orders.length > 0 ? (
                 orders.map((o) => {
-                  const orgName = (o.organizations as unknown as { name?: string })?.name || "Unassigned";
+                  const orgRel = Array.isArray(o.organizations) ? o.organizations[0] : o.organizations;
+                  const orgName = (orgRel as { name?: string } | null)?.name || "Unassigned";
                   const totalFormatted = (o.total_minor / 100).toLocaleString("en-US", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                   });
-                  const hasProject = Boolean(o.projects);
+                  const linkedProj = Array.isArray(o.projects) ? o.projects[0] : o.projects;
+                  const hasProject = Boolean(linkedProj && (linkedProj as { id?: string }).id);
 
                   return (
                     <tr key={o.id} style={{ borderBottom: "1px solid var(--line)" }}>

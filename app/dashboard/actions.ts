@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
+import { type ProjectState, canTransition, projectTransitions } from "@/lib/domain/states";
+import { enqueueServerOutboxEvent, recordServerAuditLog } from "@/lib/supabase/server-events";
 
 const submitRequirementSchema = z.object({
   projectId: z.string().uuid("Invalid project ID"),
@@ -32,7 +34,7 @@ export async function submitRequirementAction(input: unknown): Promise<{ ok: tru
       return { ok: false, error: "Project not found or unauthorized." };
     }
 
-    const { error: updateErr } = await supabase
+    const { data: updatedReq, error: updateErr } = await supabase
       .from("project_requirements")
       .update({
         response,
@@ -40,10 +42,12 @@ export async function submitRequirementAction(input: unknown): Promise<{ ok: tru
         submitted_at: new Date().toISOString()
       })
       .eq("project_id", projectId)
-      .eq("key", key);
+      .eq("key", key)
+      .select("id")
+      .maybeSingle();
 
-    if (updateErr) {
-      return { ok: false, error: updateErr.message };
+    if (updateErr || !updatedReq) {
+      return { ok: false, error: updateErr?.message ?? "Requirement item not found." };
     }
 
     // Check if all required items are answered
@@ -52,35 +56,39 @@ export async function submitRequirementAction(input: unknown): Promise<{ ok: tru
       .select("required, response")
       .eq("project_id", projectId);
 
-    const allRequiredSubmitted = allReqs?.every((r) => !r.required || r.response !== null);
+    const allRequiredSubmitted = Boolean(allReqs?.every((r) => !r.required || r.response !== null));
 
-    if (allRequiredSubmitted && project.state === "awaiting_requirements") {
-      await supabase
+    if (allRequiredSubmitted && canTransition(project.state as ProjectState, "requirements_review", projectTransitions)) {
+      const { error: stateErr } = await supabase
         .from("projects")
         .update({ state: "requirements_review", updated_at: new Date().toISOString() })
         .eq("id", projectId);
 
-      await supabase.from("outbox_events").insert({
-        aggregate_type: "project",
-        aggregate_id: projectId,
-        event_type: "Requirements Submitted",
+      if (stateErr) {
+        return { ok: false, error: stateErr.message };
+      }
+
+      await enqueueServerOutboxEvent({
+        aggregateType: "project",
+        aggregateId: projectId,
+        eventType: "Requirements Submitted",
         payload: { projectId, organizationId: project.organization_id },
-        state: "disabled",
-        idempotency_key: `requirements-submitted:${projectId}`
+        idempotencyKey: `requirements-submitted:${projectId}`
       });
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: project.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: project.organization_id,
+      actorId: user.id,
       action: "requirement.submitted",
-      entity_type: "project_requirement",
-      entity_id: `${projectId}:${key}`,
-      after_data: { response }
+      entityType: "project_requirement",
+      entityId: `${projectId}:${key}`,
+      afterData: { response }
     });
 
     revalidatePath(`/dashboard/projects/${projectId}`);
     revalidatePath(`/dashboard/projects/${projectId}/requirements`);
+    revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error submitting requirement.";
@@ -115,6 +123,13 @@ export async function submitApprovalAction(input: unknown): Promise<{ ok: true }
       return { ok: false, error: "Project not found." };
     }
 
+    if (decision === "approved" && !canTransition(project.state as ProjectState, "approved", projectTransitions)) {
+      return {
+        ok: false,
+        error: `Final deliverable approval is only allowed when the project is in client review (current state: "${project.state}").`
+      };
+    }
+
     const { error: insErr } = await supabase.from("approvals").insert({
       project_id: projectId,
       organization_id: project.organization_id,
@@ -129,32 +144,36 @@ export async function submitApprovalAction(input: unknown): Promise<{ ok: true }
     }
 
     if (decision === "approved" && project.state === "client_review") {
-      await supabase
+      const { error: stateErr } = await supabase
         .from("projects")
         .update({ state: "approved", updated_at: new Date().toISOString() })
         .eq("id", projectId);
 
-      await supabase.from("outbox_events").insert({
-        aggregate_type: "project",
-        aggregate_id: projectId,
-        event_type: "Deliverable Approved",
+      if (stateErr) {
+        return { ok: false, error: stateErr.message };
+      }
+
+      await enqueueServerOutboxEvent({
+        aggregateType: "project",
+        aggregateId: projectId,
+        eventType: "Deliverable Approved",
         payload: { projectId, organizationId: project.organization_id, decidedBy: user.id },
-        state: "disabled",
-        idempotency_key: `deliverable-approved:${projectId}`
+        idempotencyKey: `deliverable-approved:${projectId}`
       });
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: project.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: project.organization_id,
+      actorId: user.id,
       action: `approval.${decision}`,
-      entity_type: "project",
-      entity_id: projectId,
-      after_data: { decision, note }
+      entityType: "project",
+      entityId: projectId,
+      afterData: { decision, note }
     });
 
     revalidatePath(`/dashboard/projects/${projectId}`);
     revalidatePath(`/dashboard/projects/${projectId}/review`);
+    revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error.";
@@ -188,6 +207,13 @@ export async function requestRevisionAction(input: unknown): Promise<{ ok: true 
       return { ok: false, error: "Project not found." };
     }
 
+    if (!canTransition(project.state as ProjectState, "revision", projectTransitions)) {
+      return {
+        ok: false,
+        error: `Revisions can only be requested while the project is in client review (current state: "${project.state}").`
+      };
+    }
+
     if (project.revision_count >= project.revision_limit) {
       return {
         ok: false,
@@ -211,7 +237,7 @@ export async function requestRevisionAction(input: unknown): Promise<{ ok: true 
     }
 
     // Increment revision_count and transition state
-    await supabase
+    const { error: projUpdErr } = await supabase
       .from("projects")
       .update({
         revision_count: nextSequence,
@@ -220,26 +246,30 @@ export async function requestRevisionAction(input: unknown): Promise<{ ok: true 
       })
       .eq("id", projectId);
 
-    await supabase.from("outbox_events").insert({
-      aggregate_type: "project",
-      aggregate_id: projectId,
-      event_type: "Revision Requested",
+    if (projUpdErr) {
+      return { ok: false, error: projUpdErr.message };
+    }
+
+    await enqueueServerOutboxEvent({
+      aggregateType: "project",
+      aggregateId: projectId,
+      eventType: "Revision Requested",
       payload: { projectId, organizationId: project.organization_id, sequence: nextSequence },
-      state: "disabled",
-      idempotency_key: `revision-requested:${projectId}:${nextSequence}`
+      idempotencyKey: `revision-requested:${projectId}:${nextSequence}`
     });
 
-    await supabase.from("audit_logs").insert({
-      organization_id: project.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: project.organization_id,
+      actorId: user.id,
       action: "revision.requested",
-      entity_type: "revision_request",
-      entity_id: `${projectId}:${nextSequence}`,
-      after_data: { sequence: nextSequence, request }
+      entityType: "revision_request",
+      entityId: `${projectId}:${nextSequence}`,
+      afterData: { sequence: nextSequence, request }
     });
 
     revalidatePath(`/dashboard/projects/${projectId}`);
     revalidatePath(`/dashboard/projects/${projectId}/review`);
+    revalidatePath(`/admin/projects/${projectId}`);
     return { ok: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error submitting revision.";
@@ -351,13 +381,13 @@ export async function registerUploadedFileAction(
       return { ok: false, error: insErr?.message ?? "Failed to register project file record." };
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: organizationId,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId,
+      actorId: user.id,
       action: "file.uploaded",
-      entity_type: "project_file",
-      entity_id: fileRecord.id,
-      after_data: { storagePath, originalName: sanitizedOriginalName, mimeType, sizeBytes }
+      entityType: "project_file",
+      entityId: fileRecord.id,
+      afterData: { storagePath, originalName: sanitizedOriginalName, mimeType, sizeBytes }
     });
 
     revalidatePath(`/dashboard/projects/${projectId}/files`);
@@ -440,19 +470,66 @@ export async function createSupportTicketAction(
       return { ok: false, error: ticketErr?.message ?? "Failed to create support ticket." };
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: organizationId,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId,
+      actorId: user.id,
       action: "ticket.created",
-      entity_type: "support_ticket",
-      entity_id: ticket.id,
-      after_data: { subject, priority }
+      entityType: "support_ticket",
+      entityId: ticket.id,
+      afterData: { subject, priority }
     });
 
     revalidatePath("/dashboard/support");
     return { ok: true, ticketId: ticket.id };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error.";
+    return { ok: false, error: message };
+  }
+}
+
+const updateProfileSchema = z.object({
+  fullName: z.string().trim().min(2, "Full name must be at least 2 characters").max(120),
+  phone: z.string().trim().max(40).optional().nullable()
+});
+
+export async function updateProfileAction(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = updateProfileSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid profile data." };
+  }
+
+  const { fullName, phone } = parsed.data;
+
+  try {
+    const { supabase, user } = await requireUser();
+
+    const { error: updErr } = await supabase
+      .from("profiles")
+      .update({
+        full_name: fullName,
+        phone: phone || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", user.id);
+
+    if (updErr) {
+      return { ok: false, error: updErr.message };
+    }
+
+    await recordServerAuditLog({
+      actorId: user.id,
+      action: "profile.updated",
+      entityType: "profile",
+      entityId: user.id,
+      afterData: { fullName, phone: phone || null }
+    });
+
+    revalidatePath("/dashboard/settings");
+    return { ok: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unexpected error updating profile.";
     return { ok: false, error: message };
   }
 }

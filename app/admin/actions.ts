@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { type ProjectState, canTransition, projectTransitions } from "@/lib/domain/states";
+import { enqueueServerOutboxEvent, recordServerAuditLog } from "@/lib/supabase/server-events";
 
 const updateLeadSchema = z.object({
   leadId: z.string().uuid("Invalid lead ID"),
@@ -30,12 +31,12 @@ export async function updateLeadStatusAction(input: unknown): Promise<{ ok: true
       return { ok: false, error: updErr.message };
     }
 
-    await supabase.from("audit_logs").insert({
-      actor_id: user.id,
+    await recordServerAuditLog({
+      actorId: user.id,
       action: `lead.${status}`,
-      entity_type: "lead",
-      entity_id: leadId,
-      after_data: { status }
+      entityType: "lead",
+      entityId: leadId,
+      afterData: { status }
     });
 
     revalidatePath("/admin/leads");
@@ -98,24 +99,23 @@ export async function updateProjectStateAction(input: unknown): Promise<{ ok: tr
     }
 
     if (nextState === "delivered") {
-      await supabase.from("outbox_events").insert({
-        aggregate_type: "project",
-        aggregate_id: projectId,
-        event_type: "Project Delivered",
+      await enqueueServerOutboxEvent({
+        aggregateType: "project",
+        aggregateId: projectId,
+        eventType: "Project Delivered",
         payload: { projectId, organizationId: project.organization_id },
-        state: "disabled",
-        idempotency_key: `project-delivered:${projectId}`
+        idempotencyKey: `project-delivered:${projectId}`
       });
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: project.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: project.organization_id,
+      actorId: user.id,
       action: `project.${nextState}`,
-      entity_type: "project",
-      entity_id: projectId,
-      before_data: { state: project.state },
-      after_data: { state: nextState }
+      entityType: "project",
+      entityId: projectId,
+      beforeData: { state: project.state },
+      afterData: { state: nextState }
     });
 
     revalidatePath("/admin/projects");
@@ -146,27 +146,31 @@ export async function updateMilestoneStateAction(
   try {
     const { supabase, user } = await requireAdmin();
 
-    const { error: updErr } = await supabase
+    const { data: updatedMilestone, error: updErr } = await supabase
       .from("milestones")
       .update({
         state: nextState,
         completed_at: nextState === "complete" ? new Date().toISOString() : null
       })
-      .eq("id", milestoneId);
+      .eq("id", milestoneId)
+      .select("id, project_id")
+      .single();
 
-    if (updErr) {
-      return { ok: false, error: updErr.message };
+    if (updErr || !updatedMilestone) {
+      return { ok: false, error: updErr?.message ?? "Milestone not found." };
     }
 
-    await supabase.from("audit_logs").insert({
-      actor_id: user.id,
+    await recordServerAuditLog({
+      actorId: user.id,
       action: `milestone.${nextState}`,
-      entity_type: "milestone",
-      entity_id: milestoneId,
-      after_data: { state: nextState }
+      entityType: "milestone",
+      entityId: milestoneId,
+      afterData: { projectId: updatedMilestone.project_id, state: nextState }
     });
 
     revalidatePath("/admin/projects");
+    revalidatePath(`/admin/projects/${updatedMilestone.project_id}`);
+    revalidatePath(`/dashboard/projects/${updatedMilestone.project_id}`);
     return { ok: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error.";
@@ -205,12 +209,12 @@ export async function approvePriceVersionAction(
       return { ok: false, error: updErr.message };
     }
 
-    await supabase.from("audit_logs").insert({
-      actor_id: user.id,
+    await recordServerAuditLog({
+      actorId: user.id,
       action: "price_version.approved",
-      entity_type: "price_version",
-      entity_id: priceVersionId,
-      after_data: { approvedAt: now, approvedBy: user.id }
+      entityType: "price_version",
+      entityId: priceVersionId,
+      afterData: { approvedAt: now, approvedBy: user.id }
     });
 
     revalidatePath("/admin/pricing");
