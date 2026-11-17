@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MarketingShell } from "@/components/marketing-shell";
 import { login } from "@/app/auth/actions";
+import { safeAuthRedirect } from "@/lib/auth-redirect";
 
 export default async function LoginPage({
   searchParams
@@ -8,10 +9,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string; notice?: string; next?: string }>;
 }) {
   const params = await searchParams;
-  const safeNext =
-    params.next && params.next.startsWith("/") && !params.next.startsWith("//") && !params.next.startsWith("/\\")
-      ? params.next
-      : "/dashboard";
+  const safeNext = safeAuthRedirect(params.next);
 
   return (
     <MarketingShell>

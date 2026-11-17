@@ -40,3 +40,11 @@ test("project brief intake submits and persists when configured, or fails closed
   const errorBox = page.locator(".error-box");
   await expect(successBox.or(errorBox)).toBeVisible({ timeout: 15_000 });
 });
+
+
+test("small mobile homepage stays inside 320px viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/");
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(width).toBeLessThanOrEqual(320);
+});
