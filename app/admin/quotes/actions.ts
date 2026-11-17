@@ -1,5 +1,6 @@
 "use server";
 
+import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
@@ -16,6 +17,7 @@ import {
   validateQuoteForPublishing
 } from "@/lib/domain/quotes";
 import { type QuoteState, canTransition, quoteTransitions } from "@/lib/domain/states";
+import { enqueueServerOutboxEvent, recordServerAuditLog } from "@/lib/supabase/server-events";
 
 const createQuoteSchema = z.object({
   organizationId: z.string().uuid("Invalid organization selection"),
@@ -55,8 +57,9 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
     const totalMinor = calculateQuoteTotalMinor(items);
     const now = new Date();
     const validUntil = new Date(now.getTime() + validityDays * 24 * 3600 * 1000);
+    const quoteId = crypto.randomUUID();
 
-    const snapshot = null;
+    let generatedSnapshot = null;
     let sentAt = null;
 
     if (initialState === "sent") {
@@ -93,13 +96,28 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
       if (!val.valid) {
         return { ok: false, error: `Cannot publish: ${val.errors.join("; ")}` };
       }
+
       sentAt = now.toISOString();
+      generatedSnapshot = buildQuoteSnapshot({
+        quoteId,
+        organizationId,
+        currency,
+        totalMinor,
+        revisionLimit,
+        termsVersion,
+        termsMetadata,
+        validUntil,
+        scope: scope as QuoteScope,
+        items: items as QuoteItem[],
+        now
+      });
     }
 
-    // Insert quote record
+    // Insert quote record atomically with generated snapshot when publishing immediately
     const { data: quote, error: quoteError } = await supabase
       .from("quotes")
       .insert({
+        id: quoteId,
         organization_id: organizationId,
         project_brief_id: projectBriefId || null,
         state: initialState,
@@ -109,7 +127,7 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
         valid_until: validUntil.toISOString(),
         terms_version: termsVersion,
         scope,
-        snapshot,
+        snapshot: generatedSnapshot,
         sent_at: sentAt,
         created_by: user.id
       })
@@ -120,9 +138,7 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
       return { ok: false, error: quoteError?.message ?? "Failed to create quote." };
     }
 
-    const quoteId = quote.id;
-
-    // Insert line items
+    // Insert line items; roll back quote row if line item persistence fails
     const lineItemRows = items.map((item, idx) => ({
       quote_id: quoteId,
       label: item.label,
@@ -135,46 +151,27 @@ export async function createQuoteAction(input: unknown): Promise<CreateQuoteResu
 
     const { error: itemsError } = await supabase.from("quote_items").insert(lineItemRows);
     if (itemsError) {
-      return { ok: false, error: `Quote created (${quoteId}), but line items failed: ${itemsError.message}` };
+      await supabase.from("quotes").delete().eq("id", quoteId);
+      return { ok: false, error: `Line items failed to save: ${itemsError.message}` };
     }
 
-    // If published immediately, build and attach immutable snapshot
     if (initialState === "sent") {
-      const generatedSnapshot = buildQuoteSnapshot({
-        quoteId,
-        organizationId,
-        currency,
-        totalMinor,
-        revisionLimit,
-        termsVersion,
-        validUntil,
-        scope: scope as QuoteScope,
-        items: items as QuoteItem[],
-        now
-      });
-
-      await supabase
-        .from("quotes")
-        .update({ snapshot: generatedSnapshot })
-        .eq("id", quoteId);
-
-      await supabase.from("outbox_events").insert({
-        aggregate_type: "quote",
-        aggregate_id: quoteId,
-        event_type: "Quote Published",
+      await enqueueServerOutboxEvent({
+        aggregateType: "quote",
+        aggregateId: quoteId,
+        eventType: "Quote Published",
         payload: { quoteId, organizationId, totalMinor, currency },
-        state: "disabled",
-        idempotency_key: `quote-published:${quoteId}`
+        idempotencyKey: `quote-published:${quoteId}`
       });
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: organizationId,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId,
+      actorId: user.id,
       action: `quote.${initialState}`,
-      entity_type: "quote",
-      entity_id: quoteId,
-      after_data: { totalMinor, currency, revisionLimit, initialState }
+      entityType: "quote",
+      entityId: quoteId,
+      afterData: { totalMinor, currency, revisionLimit, initialState }
     });
 
     revalidatePath("/admin/quotes");
@@ -269,6 +266,7 @@ export async function publishQuoteAction(quoteId: string): Promise<{ ok: true } 
       totalMinor: quote.total_minor,
       revisionLimit: quote.revision_limit,
       termsVersion: quote.terms_version!,
+      termsMetadata,
       validUntil: validUntilDate!,
       scope: quote.scope as QuoteScope,
       items: items.map((i) => ({
@@ -296,22 +294,21 @@ export async function publishQuoteAction(quoteId: string): Promise<{ ok: true } 
       return { ok: false, error: updateErr.message };
     }
 
-    await supabase.from("outbox_events").insert({
-      aggregate_type: "quote",
-      aggregate_id: quoteId,
-      event_type: "Quote Published",
+    await enqueueServerOutboxEvent({
+      aggregateType: "quote",
+      aggregateId: quoteId,
+      eventType: "Quote Published",
       payload: { quoteId, organizationId: quote.organization_id, totalMinor: quote.total_minor },
-      state: "disabled",
-      idempotency_key: `quote-published:${quoteId}`
+      idempotencyKey: `quote-published:${quoteId}`
     });
 
-    await supabase.from("audit_logs").insert({
-      organization_id: quote.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: quote.organization_id,
+      actorId: user.id,
       action: "quote.published",
-      entity_type: "quote",
-      entity_id: quoteId,
-      after_data: { state: "sent", publishedAt: now.toISOString() }
+      entityType: "quote",
+      entityId: quoteId,
+      afterData: { state: "sent", publishedAt: now.toISOString() }
     });
 
     revalidatePath("/admin/quotes");
@@ -355,14 +352,14 @@ export async function updateQuoteStatusAction(
       return { ok: false, error: updateErr.message };
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: quote.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: quote.organization_id,
+      actorId: user.id,
       action: `quote.${newState}`,
-      entity_type: "quote",
-      entity_id: quoteId,
-      before_data: { state: quote.state },
-      after_data: { state: newState }
+      entityType: "quote",
+      entityId: quoteId,
+      beforeData: { state: quote.state },
+      afterData: { state: newState }
     });
 
     revalidatePath("/admin/quotes");

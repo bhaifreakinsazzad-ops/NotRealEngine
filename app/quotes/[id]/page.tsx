@@ -109,7 +109,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
               <h1 style={{ margin: 0, fontSize: "1.6rem", letterSpacing: "-0.03em" }}>
                 Commercial Quotation
               </h1>
-              <span className={`status ${stateClasses[displayState] || ""}`}>
+              <span className={stateClasses[displayState] || "status"}>
                 {displayState.replace("_", " ").toUpperCase()}
               </span>
             </div>
