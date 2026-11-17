@@ -456,3 +456,50 @@ export async function createSupportTicketAction(
     return { ok: false, error: message };
   }
 }
+
+const updateProfileSchema = z.object({
+  fullName: z.string().trim().min(2, "Full name must be at least 2 characters").max(120),
+  phone: z.string().trim().max(40).optional().nullable()
+});
+
+export async function updateProfileAction(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = updateProfileSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid profile data." };
+  }
+
+  const { fullName, phone } = parsed.data;
+
+  try {
+    const { supabase, user } = await requireUser();
+
+    const { error: updErr } = await supabase
+      .from("profiles")
+      .update({
+        full_name: fullName,
+        phone: phone || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", user.id);
+
+    if (updErr) {
+      return { ok: false, error: updErr.message };
+    }
+
+    await supabase.from("audit_logs").insert({
+      actor_id: user.id,
+      action: "profile.updated",
+      entity_type: "profile",
+      entity_id: user.id,
+      after_data: { fullName, phone: phone || null }
+    });
+
+    revalidatePath("/dashboard/settings");
+    return { ok: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unexpected error updating profile.";
+    return { ok: false, error: message };
+  }
+}
