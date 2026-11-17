@@ -201,7 +201,7 @@ export function AdminQuoteEditor({
     <div style={{ maxWidth: "1050px" }}>
       {error && <div className="error-box" style={{ marginBottom: "1.5rem" }}>{error}</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "2rem", alignItems: "start" }}>
+      <div className="app-grid-wide">
         {/* Main Form */}
         <div style={{ display: "grid", gap: "1.5rem" }}>
           {/* Organization & Lead Assignment */}
@@ -479,7 +479,7 @@ export function AdminQuoteEditor({
         </div>
 
         {/* Sidebar Controls */}
-        <div style={{ position: "sticky", top: "96px", display: "grid", gap: "1.2rem" }}>
+        <div className="app-grid-aside">
           {/* Summary Box */}
           <div className="panel" style={{ borderColor: "var(--cyan)" }}>
             <div className="panel-head">
