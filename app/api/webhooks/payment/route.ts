@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { processPaymentWebhook } from "@/lib/integrations/payments/processor";
 import { parseAndVerifyPaymentWebhook } from "@/lib/integrations/payments/providers";
+import { intakeConfigured } from "@/lib/supabase/config";
+import { getServiceRoleClient } from "@/lib/supabase/service";
 
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
@@ -29,18 +30,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Use service role client for verified webhook event processing
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!url || !key) {
+    if (!intakeConfigured()) {
       return NextResponse.json({ error: "Database service unavailable" }, { status: 503 });
     }
 
-    const supabase = createServerClient(url, key, {
-      cookies: { getAll: () => [], setAll: () => {} }
-    });
-
+    const supabase = getServiceRoleClient();
     const result = await processPaymentWebhook(supabase, verification.event);
 
     if (!result.success) {

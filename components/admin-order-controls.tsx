@@ -9,7 +9,8 @@ import { initializeProjectFromOrderAction, updateOrderStateAction } from "@/app/
 export function AdminOrderControls({
   orderId,
   state,
-  hasProject
+  hasProject,
+  projectId
 }: {
   orderId: string;
   state: OrderState;
@@ -60,7 +61,7 @@ export function AdminOrderControls({
         setLoading(false);
         return;
       }
-      router.push(`/admin/projects`);
+      router.push(`/admin/projects/${res.projectId}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to initialize project.");
       setLoading(false);
@@ -113,7 +114,7 @@ export function AdminOrderControls({
             ) : (
               <button
                 type="button"
-                onClick={() => router.push(`/admin/projects`)}
+                onClick={() => router.push(projectId ? `/admin/projects/${projectId}` : "/admin/projects")}
                 className="btn btn-primary"
                 style={{ fontSize: "0.85rem" }}
               >

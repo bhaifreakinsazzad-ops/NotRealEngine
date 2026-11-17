@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { services } from "@/lib/catalog";
 import { type OrderState, canTransition, orderTransitions } from "@/lib/domain/states";
+import { enqueueServerOutboxEvent, recordServerAuditLog } from "@/lib/supabase/server-events";
 
 const canonicalServiceMap = new Map<string, string>();
 for (const s of services) {
@@ -182,29 +183,28 @@ export async function updateOrderStateAction(input: unknown): Promise<{ ok: true
     }
 
     if (nextState === "confirmed") {
-      await supabase.from("outbox_events").insert({
-        aggregate_type: "order",
-        aggregate_id: orderId,
-        event_type: "Order Confirmed",
+      await enqueueServerOutboxEvent({
+        aggregateType: "order",
+        aggregateId: orderId,
+        eventType: "Order Confirmed",
         payload: {
           orderId,
           organizationId: order.organization_id,
           totalMinor: order.total_minor,
           clearanceMode
         },
-        state: "disabled",
-        idempotency_key: `order-confirmed:${orderId}`
+        idempotencyKey: `order-confirmed:${orderId}`
       });
     }
 
-    await supabase.from("audit_logs").insert({
-      organization_id: order.organization_id,
-      actor_id: user.id,
+    await recordServerAuditLog({
+      organizationId: order.organization_id,
+      actorId: user.id,
       action: `order.${nextState}`,
-      entity_type: "order",
-      entity_id: orderId,
-      before_data: { state: order.state },
-      after_data: {
+      entityType: "order",
+      entityId: orderId,
+      beforeData: { state: order.state },
+      afterData: {
         state: nextState,
         clearanceMode,
         manualSettlement: manualSettlement ?? null
@@ -299,8 +299,17 @@ export async function initializeProjectFromOrderAction(
     }
 
     // 4. Resolve canonical service_id strictly — NEVER substitute an unrelated fallback service!
-    const briefServiceId = (order.quotes as unknown as { project_briefs?: { service_id?: string } })
-      ?.project_briefs?.service_id;
+    const rawQuotes = order.quotes as unknown as
+      | { project_briefs?: { service_id?: string } | Array<{ service_id?: string }> }
+      | Array<{ project_briefs?: { service_id?: string } | Array<{ service_id?: string }> }>
+      | null;
+    const quoteRel = Array.isArray(rawQuotes) ? rawQuotes[0] : rawQuotes;
+    const briefRel = quoteRel?.project_briefs
+      ? Array.isArray(quoteRel.project_briefs)
+        ? quoteRel.project_briefs[0]
+        : quoteRel.project_briefs
+      : null;
+    const briefServiceId = briefRel?.service_id;
     const snapshotServiceId = typeof snapshot.serviceId === "string" ? snapshot.serviceId.trim() : "";
     const candidateServiceRef = (briefServiceId || snapshotServiceId || "").trim();
     const resolvedServiceId = canonicalServiceMap.get(candidateServiceRef);
@@ -313,7 +322,6 @@ export async function initializeProjectFromOrderAction(
     }
 
     // 5. Atomic PostgreSQL RPC initialize_project_from_order is the SOLE authoritative path.
-    // Compensating client-side fallbacks have been completely eliminated per Directive V13.0.
     const { data: rpcProjectId, error: rpcErr } = await supabase.rpc("initialize_project_from_order", {
       p_order_id: orderId,
       p_service_id: resolvedServiceId
@@ -330,6 +338,7 @@ export async function initializeProjectFromOrderAction(
     revalidatePath(`/admin/orders/${orderId}`);
     revalidatePath(`/orders/${orderId}`);
     revalidatePath("/admin/projects");
+    revalidatePath(`/admin/projects/${rpcProjectId}`);
     revalidatePath("/dashboard/projects");
 
     return { ok: true, projectId: rpcProjectId as string };

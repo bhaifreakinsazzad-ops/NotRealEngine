@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
+import { validateStagingSafetyPreflight } from "../../lib/staging/staging-preflight";
 
 function loadEnv() {
   for (const envFile of [".env.local", ".env"]) {
@@ -125,6 +126,25 @@ test.describe("Authenticated Browser E2E Journeys (Journeys B–F against Live S
     let createdProjectId: string | null = null;
 
     try {
+      // Execute Shared Staging Safety Preflight (Directive V23.1 Section 4)
+      // Inspect remote system_environment in read-only mode — NEVER mutate it
+      const { data: remoteSysEnv } = await adminClient.from("system_environment").select("environment, is_synthetic_allowed").eq("id", "current").maybeSingle();
+
+      const preflight = validateStagingSafetyPreflight({
+        engineEnv: process.env.ENGINE_OS_ENV,
+        supabaseUrl,
+        playwrightBaseUrl: process.env.PLAYWRIGHT_BASE_URL,
+        allowMutationFlag: true, // test runner is explicitly executing browser E2E
+        allowMutationEnv: process.env.ALLOW_STAGING_MUTATION,
+        dbEnvironmentState: remoteSysEnv
+      });
+
+      if (!preflight.allowed) {
+        console.warn(`[E2E Safety Guard] Browser E2E mutating lifecycle SKIPPED: ${preflight.reason}`);
+        test.skip(true, `Staging safety preflight blocked: ${preflight.reason}`);
+        return;
+      }
+
       // 1. Provision Staff, Customer A, and Customer B
       for (const u of [
         { email: staffEmail, name: "E2E Staff Operator", staff: true },

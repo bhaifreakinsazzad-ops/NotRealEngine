@@ -88,7 +88,7 @@ export default async function ProjectReviewPage({ params }: { params: Promise<{ 
       </div>
 
       {/* History Grids */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: "1.5rem" }}>
         {/* Approvals History */}
         <div className="panel">
           <div className="panel-head">
