@@ -6,7 +6,7 @@ import { intakeConfigured } from "@/lib/supabase/config";
 import { getServiceRoleClient } from "@/lib/supabase/service";
 
 const claimSchema = z.object({
-  token: z.string().min(32, "Valid draft token is required").max(256),
+  token: z.string().regex(/^[0-9a-f]{64}$/i, "A valid 64-character draft token is required"),
   organizationId: z.string().uuid("Invalid organization ID").optional().nullable()
 });
 

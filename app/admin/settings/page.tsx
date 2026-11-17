@@ -77,7 +77,7 @@ export default async function AdminSettingsPage() {
           </div>
           <div className="panel-body">
             <ul style={{ margin: 0, paddingLeft: "1.2rem", color: "var(--silver)", fontSize: "0.88rem", lineHeight: 1.7 }}>
-              <li>Row Level Security (RLS) is strictly enforced on all 24 PostgreSQL public tables.</li>
+              <li>Row Level Security (RLS) protects operational database tables, with access enforced by server-side role and organization policies.</li>
               <li>Client browser cannot elevate permissions, bypass RLS, or forge payment verification.</li>
               <li>Commercial quote acceptance is an atomic database RPC generating an immutable snapshot.</li>
               <li>Integer minor units are used exclusively for all commercial currency calculations.</li>
