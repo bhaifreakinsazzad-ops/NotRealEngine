@@ -148,7 +148,7 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                   Current State: <strong className="cyan">{project.state.toUpperCase()}</strong> · Revisions: {project.revision_count}/{project.revision_limit}
                 </span>
               </div>
-              <Link href={`/admin/projects`} className="btn btn-primary" style={{ fontSize: "0.85rem" }}>
+              <Link href={`/admin/projects/${project.id}`} className="btn btn-primary" style={{ fontSize: "0.85rem" }}>
                 Open Project Management <ArrowRight size={14} />
               </Link>
             </div>

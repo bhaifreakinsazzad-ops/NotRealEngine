@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MessageSquare, Phone, Calendar, Sparkles, ExternalLink, X } from "lucide-react";
 import { SOCIAL_LINKS } from "./social-links";
@@ -10,6 +10,23 @@ import { OnboardingForm } from "./onboarding-form";
 export function QuickConnect() {
   const [isOpen, setIsOpen] = useState(false);
   const [activeModal, setActiveModal] = useState<"calendar" | "onboarding" | null>(null);
+
+  useEffect(() => {
+    if (!isOpen && !activeModal) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (activeModal) {
+          setActiveModal(null);
+        } else if (isOpen) {
+          setIsOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, activeModal]);
 
   return (
     <>
@@ -120,7 +137,15 @@ export function QuickConnect() {
 
       {/* Booking Calendar Modal */}
       {activeModal === "calendar" && (
-        <div className="interactive-modal-backdrop" role="dialog" aria-modal="true" aria-label="Schedule Consultation">
+        <div
+          className="interactive-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Schedule Consultation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setActiveModal(null);
+          }}
+        >
           <div className="interactive-modal-content">
             <button
               type="button"
@@ -137,7 +162,15 @@ export function QuickConnect() {
 
       {/* Onboarding Form Modal */}
       {activeModal === "onboarding" && (
-        <div className="interactive-modal-backdrop" role="dialog" aria-modal="true" aria-label="Client Onboarding">
+        <div
+          className="interactive-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Client Onboarding"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setActiveModal(null);
+          }}
+        >
           <div className="interactive-modal-content">
             <button
               type="button"
