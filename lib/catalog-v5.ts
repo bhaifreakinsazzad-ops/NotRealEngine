@@ -78,9 +78,10 @@ export interface PulsePlan {
   readonly weeklyStartingPriceBdt: number;
   readonly weeklyStartingPriceMinor: number;
   readonly weeklyPricingStatus: "founder_directed_starting_from";
+  /** Historical field name; this amount was approved by the founder on 2026-11-21. */
   readonly proposedMonthlyPriceBdt: number;
   readonly proposedMonthlyPriceMinor: number;
-  readonly monthlyPricingStatus: "proposed_owner_approval_pending";
+  readonly monthlyPricingStatus: "founder_approved_starting_from";
   readonly billingEnabled: false;
   readonly eligibilityNote: string;
   readonly coverageFocus: readonly string[];
@@ -1038,7 +1039,7 @@ export const pulsePlans: readonly PulsePlan[] = [
     weeklyPricingStatus: "founder_directed_starting_from",
     proposedMonthlyPriceBdt: 9990,
     proposedMonthlyPriceMinor: 999000,
-    monthlyPricingStatus: "proposed_owner_approval_pending",
+    monthlyPricingStatus: "founder_approved_starting_from",
     billingEnabled: false,
     eligibilityNote:
       "Eligibility review and written scope required before onboarding. Best suited for straightforward sites built or audited by NotRealEngine.",
@@ -1061,7 +1062,7 @@ export const pulsePlans: readonly PulsePlan[] = [
     weeklyPricingStatus: "founder_directed_starting_from",
     proposedMonthlyPriceBdt: 16990,
     proposedMonthlyPriceMinor: 1699000,
-    monthlyPricingStatus: "proposed_owner_approval_pending",
+    monthlyPricingStatus: "founder_approved_starting_from",
     billingEnabled: false,
     eligibilityNote:
       "Includes initial technical onboarding check and written coverage schedule across agreed properties.",
@@ -1084,7 +1085,7 @@ export const pulsePlans: readonly PulsePlan[] = [
     weeklyPricingStatus: "founder_directed_starting_from",
     proposedMonthlyPriceBdt: 39990,
     proposedMonthlyPriceMinor: 3999000,
-    monthlyPricingStatus: "proposed_owner_approval_pending",
+    monthlyPricingStatus: "founder_approved_starting_from",
     billingEnabled: false,
     eligibilityNote:
       "Dedicated onboarding audit, written SLA/scope schedule, and executive escalation path.",
