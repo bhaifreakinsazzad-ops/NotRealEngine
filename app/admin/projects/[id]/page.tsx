@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireAdmin } from "@/lib/auth";
+import { resolveServiceLabel } from "@/lib/catalog";
 import { type ProjectState } from "@/lib/domain/states";
 import { AdminProjectControls, AdminMilestoneRow } from "@/components/admin-project-controls";
 
@@ -102,7 +103,7 @@ export default async function AdminProjectDetailPage({ params }: { params: Promi
               </span>
             </div>
             <p className="mono muted" style={{ margin: "0.35rem 0 0", fontSize: "0.82rem" }}>
-              Client: <strong>{orgName}</strong> · Service: {project.service_id} · Order: #ORD-{project.order_id.slice(0, 8)}
+              Client: <strong>{orgName}</strong> · Service: <strong>{resolveServiceLabel(project.service_id).id} — {resolveServiceLabel(project.service_id).name}</strong> · Order: #ORD-{project.order_id.slice(0, 8)}
             </p>
           </div>
 
