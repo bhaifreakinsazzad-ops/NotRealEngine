@@ -4,7 +4,7 @@ Production-oriented Next.js and Supabase foundation for NOTREAL ENGINE's digital
 
 ## What is implemented
 
-- Public homepage, exact 10-category/12-offer service directory, service pages, auditable Solution Finder, pricing gate, and six-step Project Builder.
+- Public homepage, canonical 22-service directory (13 Standalone + 9 Core Technical) with 13 compatible add-ons, service pages, auditable Solution Finder, quote-required pricing, and six-step Project Builder.
 - Strict server validation and a rate-limited PostgreSQL intake RPC. When Supabase is absent, submission fails closed with an honest configuration error.
 - Supabase SSR authentication routes, protected client workspace, server-authorized staff control center, and organization-scoped queries.
 - Normalized PostgreSQL schema, RLS policies, private project-file bucket policies, state-transition triggers, immutable quote decisions, idempotent quote-to-order creation, outbox/audit models, and development seed data.
@@ -37,6 +37,6 @@ Database policies require a disposable Supabase test project and pgTAP. See `sup
 - Notifications: outbox foundation exists; external channels are disabled until providers are approved and verified.
 - Legal documents: reserved draft routes only; no binding text is supplied.
 - Production deployment: not performed.
-- BDT 999 Single Page Website promotion: recorded as an unorderable reference; duration, complete package approval, regular price, and checkout readiness remain unresolved.
+- BDT 999 Single Page Website campaign: archived legacy record, not displayed for current public discovery and never orderable.
 
 Read `docs/ARCHITECTURE.md`, `docs/PROTOTYPE_AUDIT.md`, `docs/SCOPE_RECONCILIATION.md`, and `docs/RELEASE_READINESS.md` before changing these gates.
