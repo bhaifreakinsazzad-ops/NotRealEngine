@@ -1,5 +1,8 @@
 # Remaining Founder Actions — 2026-11-09 (Directive V14.0)
 
+> **Historical snapshot notice (2026-11-21):** This document predates the current 22-service / 13-add-on registry and founder-approved NRE PULSE monthly prices. For present decisions, read [Founder Approval Reconciliation](./FOUNDER_APPROVAL_RECONCILIATION_2026-11-21.md) and [CDO Execution Ledger](./CDO_EXECUTION_PLAN_2026-11-21.md). Earlier staging and production claims are not evidence of the current live environment.
+
+
 Only actions that genuinely require founder authority or external provider credentials remain:
 
 ## 1. Apply Migrations `0005`–`0007` in Supabase SQL Editor (Immediate)

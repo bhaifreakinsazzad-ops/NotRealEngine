@@ -38,7 +38,7 @@ describe("Configuration Drafts API (/api/drafts & /api/drafts/claim)", () => {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     const req = new NextRequest("http://localhost:3000/api/drafts", {
       method: "POST",
-      body: JSON.stringify({ serviceId: "SVC-01-SPW" }),
+      body: JSON.stringify({ serviceId: "S03" }),
       headers: { "content-type": "application/json" }
     });
     const res = await createDraft(req);
@@ -83,7 +83,7 @@ describe("Configuration Drafts API (/api/drafts & /api/drafts/claim)", () => {
 
     const createReq = new NextRequest("http://localhost:3000/api/drafts", {
       method: "POST",
-      body: JSON.stringify({ serviceId: "SVC-01-SPW", goal: "Launch product" }),
+      body: JSON.stringify({ serviceId: "S03", goal: "Launch product" }),
       headers: { "content-type": "application/json" }
     });
     const createRes = await createDraft(createReq);
@@ -100,7 +100,7 @@ describe("Configuration Drafts API (/api/drafts & /api/drafts/claim)", () => {
             maybeSingle: vi.fn().mockResolvedValue({
               data: {
                 id: "draft-123",
-                payload: { serviceId: "SVC-01-SPW" },
+                payload: { serviceId: "S03" },
                 expires_at: new Date(Date.now() + 3600_000).toISOString(),
                 created_at: new Date().toISOString(),
                 owner_id: null

@@ -48,7 +48,7 @@ export default async function AdminPricingPage() {
               Commercial Invariant Policy
             </strong>
             <span style={{ fontSize: "0.84rem", color: "var(--silver)" }}>
-              As required by company rules: All customer-visible prices require integer minor units, active service, approved package, market/currency applicability, valid effective dates, and authenticated staff sign-off. The recorded BDT 999 promotional reference remains unorderable until founder approval.
+              Catalog v5 governance: Public BDT launch figures are non-binding Starting From baselines only. Checkout-orderable price versions require integer minor units, active service, approved package, market/currency validity, effective dates, and authenticated founder sign-off. The legacy BDT 999 campaign is archived and hidden publicly, and NRE PULSE monthly Starting From prices were approved by the founder on 2026-11-21; recurring billing remains disabled until legal and provider verification.
             </span>
           </div>
         </div>

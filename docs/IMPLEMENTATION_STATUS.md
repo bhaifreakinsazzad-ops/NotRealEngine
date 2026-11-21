@@ -1,5 +1,8 @@
 # Implementation Status — 2026-11-08 (Directive V12.0)
 
+> **Historical snapshot notice (2026-11-21):** This document predates the current 22-service / 13-add-on registry and founder-approved NRE PULSE monthly prices. For present decisions, read [Founder Approval Reconciliation](./FOUNDER_APPROVAL_RECONCILIATION_2026-11-21.md) and [CDO Execution Ledger](./CDO_EXECUTION_PLAN_2026-11-21.md). Earlier staging and production claims are not evidence of the current live environment.
+
+
 | Domain / Requirement | Stage Status | Verification Evidence |
 |---|---|---|
 | **1. Canonical Catalog (10 Categories / 12 Services)** | `DATABASE VERIFIED` | Verified in `lib/catalog.ts`, `tests/unit/catalog.test.ts`, and live PostgreSQL (`yamwmfgqqjwlfcjjkwzl`). Web Application and PWA are distinct. |
