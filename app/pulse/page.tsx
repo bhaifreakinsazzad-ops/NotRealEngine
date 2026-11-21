@@ -38,8 +38,8 @@ export default function PulsePage() {
               <h2>Three structured care plans. Zero hidden billing.</h2>
             </div>
             <p>
-              Weekly baselines are founder-directed Starting From rates. Monthly rates are proposed
-              and held pending explicit owner approval—automated recurring billing is OFF.
+              Weekly and monthly Starting From prices are founder-approved.
+              Automated recurring billing remains OFF until legal terms and providers are verified.
             </p>
           </div>
 
@@ -76,7 +76,7 @@ export default function PulsePage() {
                   </div>
                   <div style={{ borderTop: "1px solid var(--line)", paddingTop: ".6rem" }}>
                     <span className="mono gold" style={{ fontSize: ".7rem", display: "block" }}>
-                      MONTHLY (PROPOSED — OWNER APPROVAL PENDING)
+                      MONTHLY STARTING FROM (FOUNDER-APPROVED)
                     </span>
                     <strong className="mono tabular" style={{ fontSize: "1rem", color: "var(--silver)" }}>
                       {formatBdt(plan.proposedMonthlyPriceBdt)} / month (Billing disabled)
@@ -214,7 +214,7 @@ export default function PulsePage() {
               }}
             >
               <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
-              <span>Monthly rates shown are proposed figures pending formal founder approval.</span>
+              <span>Monthly prices are founder-approved. Recurring payment collection remains disabled until legal terms and payment providers are verified.</span>
             </div>
             <div style={{ display: "grid", gap: ".7rem" }}>
               <Link href="/contact" className="btn btn-primary">
