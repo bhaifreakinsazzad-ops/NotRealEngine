@@ -187,7 +187,7 @@ export default function PricingPage() {
                   </div>
                   <div style={{ borderTop: "1px solid var(--line)", paddingTop: ".6rem" }}>
                     <span className="mono gold" style={{ fontSize: ".7rem", display: "block" }}>
-                      MONTHLY (PROPOSED — OWNER APPROVAL PENDING)
+                      MONTHLY STARTING FROM (FOUNDER-APPROVED)
                     </span>
                     <strong className="mono tabular silver" style={{ fontSize: ".98rem" }}>
                       {formatBdt(plan.proposedMonthlyPriceBdt)}/mo (Not yet billable)

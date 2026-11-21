@@ -81,7 +81,9 @@ describe("canonical v5 service architecture", () => {
     expect(pulsePlans).toHaveLength(3);
     expect(pulsePlans.map((p) => p.code)).toEqual(["FLEX", "CORE", "PRIME"]);
     expect(pulsePlans.every((p) => p.billingEnabled === false)).toBe(true);
-    expect(pulsePlans.every((p) => p.monthlyPricingStatus === "proposed_owner_approval_pending")).toBe(true);
+    expect(pulsePlans.every((p) => p.monthlyPricingStatus === "founder_approved_starting_from")).toBe(true);
+    expect(pulsePlans.map((p) => p.proposedMonthlyPriceBdt)).toEqual([9990, 16990, 39990]);
+    expect(pulsePlans.every((p) => p.proposedMonthlyPriceMinor === p.proposedMonthlyPriceBdt * 100)).toBe(true);
     expect(pulseCoverageModules).toHaveLength(7);
     expect(pulseCoverageModules.map((m) => m.id)).toEqual(["M01", "M02", "M03", "M04", "M05", "M06", "M07"]);
   });
