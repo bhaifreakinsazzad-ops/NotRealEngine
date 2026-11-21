@@ -224,3 +224,60 @@ export async function approvePriceVersionAction(
     return { ok: false, error: message };
   }
 }
+
+const updateSupportTicketSchema = z.object({
+  ticketId: z.string().uuid("Invalid ticket ID"),
+  state: z.enum(["open", "in_progress", "waiting_client", "resolved", "closed"]),
+});
+
+export async function updateSupportTicketStateAction(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = updateSupportTicketSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid support ticket state." };
+  }
+
+  const { ticketId, state } = parsed.data;
+
+  try {
+    const { supabase, user } = await requireAdmin();
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from("support_tickets")
+      .select("id, state, organization_id")
+      .eq("id", ticketId)
+      .single();
+
+    if (fetchErr || !existing) {
+      return { ok: false, error: "Support ticket not found." };
+    }
+
+    const { error: updErr } = await supabase
+      .from("support_tickets")
+      .update({ state, updated_at: new Date().toISOString() })
+      .eq("id", ticketId);
+
+    if (updErr) {
+      return { ok: false, error: updErr.message };
+    }
+
+    await recordServerAuditLog({
+      organizationId: existing.organization_id,
+      actorId: user.id,
+      action: `support_ticket.${state}`,
+      entityType: "support_ticket",
+      entityId: ticketId,
+      beforeData: { state: existing.state },
+      afterData: { state },
+    });
+
+    revalidatePath("/admin/support");
+    revalidatePath("/dashboard/support");
+    return { ok: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unexpected error.";
+    return { ok: false, error: message };
+  }
+}
+

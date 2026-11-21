@@ -31,9 +31,9 @@ export default async function SupportPage() {
     <div style={{ maxWidth: "1050px" }}>
       <div className="app-top">
         <div>
-          <h1 style={{ fontSize: "1.75rem", margin: 0 }}>Client Support & Engineering Desk</h1>
+          <h1 style={{ fontSize: "1.75rem", margin: 0 }}>Client Support & NRE PULSE Desk</h1>
           <p className="muted" style={{ margin: "0.25rem 0 0", fontSize: "0.88rem" }}>
-            Direct communication channel with technical implementation leads and support engineers.
+            Submit technical requests and track ticket status 24/7 inside NRE OFFICE. Responses and fixes are human-led by our engineering team during active operational windows.
           </p>
         </div>
       </div>
