@@ -2,8 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Bookmark, CheckCircle2, Copy, Check } from "lucide-react";
-import { serviceById, services } from "@/lib/catalog";
+import { Download, Copy, Check, AlertCircle, Search } from "lucide-react";
+import {
+  calculateStartingEstimateBdt,
+  coreTechnicalServices,
+  formatBdt,
+  formatStartingFromBdt,
+  serviceById,
+  standaloneServices,
+} from "@/lib/catalog";
 
 type Draft = {
   goal: string;
@@ -18,10 +25,18 @@ type Draft = {
   phone: string;
   organization: string;
   consent: boolean;
+  step: number;
 };
 
-const DRAFT_STORAGE_KEY = "engine_os_draft_token";
-const steps = ["Business goal", "Service", "Features", "Design", "Budget", "Review"];
+const steps = [
+  "01 Goal",
+  "02 Service",
+  "03 Add-ons",
+  "04 Design",
+  "05 Timeline",
+  "06 Review & Send",
+] as const;
+
 const initialDraft = (serviceId = ""): Draft => ({
   goal: "",
   problem: "",
@@ -34,196 +49,185 @@ const initialDraft = (serviceId = ""): Draft => ({
   email: "",
   phone: "",
   organization: "",
-  consent: false
+  consent: false,
+  step: 1,
 });
 
-function clampStep(step?: number): number {
-  if (!step || Number.isNaN(step)) return 1;
-  return Math.min(6, Math.max(1, Math.trunc(step)));
+function buildBriefMarkdown(draft: Draft): string {
+  const svc = serviceById(draft.serviceId);
+  const estimate = svc ? calculateStartingEstimateBdt(svc.id, draft.addonIds) : null;
+  const lines = [
+    "# NotRealEngine — Project Scope Blueprint",
+    "",
+    `- **Primary Goal:** ${draft.goal || "Not yet specified"}`,
+    `- **Selected Service:** ${svc ? `${svc.id} — ${svc.name} (${formatStartingFromBdt(svc.startingPriceBdt)})` : "Not selected"}`,
+    `- **Selected Compatible Add-ons:** ${
+      estimate && estimate.validAddons.length > 0
+        ? estimate.validAddons.map((a) => `${a.id} ${a.name} (${formatStartingFromBdt(a.startingPriceBdt)})`).join("; ")
+        : "None"
+    }`,
+    `- **Indicative Starting From Total:** ${
+      estimate ? `${formatStartingFromBdt(estimate.totalBdt)} (non-binding until formal quotation)` : "Pending service selection"
+    }`,
+    `- **Budget Band:** ${draft.budgetBand}`,
+    `- **Target Date:** ${draft.targetDate || "Flexible"}`,
+    "",
+    "## Operational Context & Requirements",
+    draft.problem || "(Pending details)",
+    "",
+    "## Design & Brand Direction",
+    draft.designDirection || "(Not specified)",
+    "",
+    "---",
+    "Generated via NotRealEngine Project Builder (Canonical Catalog v5). Direct checkout is disabled; final scope and pricing are issued in a written quotation.",
+  ];
+  return lines.join("\n");
 }
 
 export function ProjectBuilder({
   initialServiceId = "",
   initialDraftToken = "",
-  initialStep = 1
+  initialStep = 1,
+  initialGoal = "",
+  initialProblem = "",
 }: {
   initialServiceId?: string;
   initialDraftToken?: string;
   initialStep?: number;
+  initialGoal?: string;
+  initialProblem?: string;
 }) {
-  const [step, setStep] = useState(() => clampStep(initialStep));
-  const [draft, setDraft] = useState(() =>
-    initialDraft(serviceById(initialServiceId) ? initialServiceId : "")
-  );
+  const [draft, setDraft] = useState<Draft>(() => {
+    const base = initialDraft(serviceById(initialServiceId) ? initialServiceId : "");
+    return {
+      ...base,
+      step: Math.min(6, Math.max(1, initialStep)),
+      goal: initialGoal || base.goal,
+      problem: initialProblem || base.problem,
+    };
+  });
+  const [serviceSegmentTab, setServiceSegmentTab] = useState<"standalone" | "core_technical">("standalone");
+  const [serviceQuery, setServiceQuery] = useState("");
   const [error, setError] = useState("");
-  const [reference, setReference] = useState("");
+  const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
+  const [submitted, setSubmitted] = useState<{ reference: string; next: string } | null>(null);
   const [draftToken, setDraftToken] = useState(initialDraftToken);
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [draftNotice, setDraftNotice] = useState("");
-  const [draftError, setDraftError] = useState("");
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const service = useMemo(() => serviceById(draft.serviceId), [draft.serviceId]);
+  const estimate = useMemo(
+    () => (draft.serviceId ? calculateStartingEstimateBdt(draft.serviceId, draft.addonIds) : null),
+    [draft.serviceId, draft.addonIds]
+  );
+
+  const visibleServices = useMemo(() => {
+    const pool = serviceSegmentTab === "standalone" ? standaloneServices : coreTechnicalServices;
+    const q = serviceQuery.trim().toLowerCase();
+    if (!q) return pool;
+    return [...standaloneServices, ...coreTechnicalServices].filter(
+      (s) =>
+        s.id.toLowerCase().includes(q) ||
+        s.name.toLowerCase().includes(q) ||
+        s.categoryName.toLowerCase().includes(q)
+    );
+  }, [serviceSegmentTab, serviceQuery]);
 
   useEffect(() => {
-    let active = true;
-    const storedToken =
-      typeof window !== "undefined" ? window.sessionStorage.getItem(DRAFT_STORAGE_KEY) || "" : "";
-    const tokenToLoad = initialDraftToken || storedToken;
-    if (!tokenToLoad || tokenToLoad.length < 32) return;
-
-    async function loadSavedDraft() {
-      try {
-        const res = await fetch(`/api/drafts?token=${encodeURIComponent(tokenToLoad)}`);
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          payload?: Partial<Draft> & { step?: number };
-        };
-        if (!active || !data.payload) return;
-
-        const restoredService =
+    if (!initialDraftToken) return;
+    fetch(`/api/drafts?token=${encodeURIComponent(initialDraftToken)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!data?.payload || typeof data.payload !== "object") return;
+        const loadedServiceId =
           typeof data.payload.serviceId === "string" && serviceById(data.payload.serviceId)
             ? data.payload.serviceId
             : "";
-
-        setDraft((prev) => ({
-          ...prev,
-          goal: typeof data.payload?.goal === "string" ? data.payload.goal : prev.goal,
-          problem: typeof data.payload?.problem === "string" ? data.payload.problem : prev.problem,
-          serviceId: restoredService || prev.serviceId,
-          addonIds: Array.isArray(data.payload?.addonIds)
-            ? data.payload.addonIds.filter((id): id is string => typeof id === "string")
-            : prev.addonIds,
-          designDirection:
-            typeof data.payload?.designDirection === "string"
-              ? data.payload.designDirection
-              : prev.designDirection,
-          budgetBand: data.payload?.budgetBand || prev.budgetBand,
-          targetDate:
-            typeof data.payload?.targetDate === "string" ? data.payload.targetDate : prev.targetDate,
-          name: typeof data.payload?.name === "string" ? data.payload.name : prev.name,
-          email: typeof data.payload?.email === "string" ? data.payload.email : prev.email,
-          phone: typeof data.payload?.phone === "string" ? data.payload.phone : prev.phone,
-          organization:
-            typeof data.payload?.organization === "string"
-              ? data.payload.organization
-              : prev.organization,
-          consent: Boolean(data.payload?.consent)
+        setDraft((current) => ({
+          ...current,
+          ...data.payload,
+          serviceId: loadedServiceId,
+          addonIds: Array.isArray(data.payload.addonIds) ? data.payload.addonIds : [],
         }));
-
-        if (initialStep === 1 && typeof data.payload.step === "number") {
-          setStep(clampStep(data.payload.step));
-        }
-        setDraftToken(tokenToLoad);
-        setDraftNotice("Saved configuration draft restored.");
-      } catch {
-        // Keep local in-memory draft intact if server draft service is unavailable.
-      }
-    }
-
-    loadSavedDraft();
-    return () => {
-      active = false;
-    };
-  }, [initialDraftToken, initialStep]);
-
-  function update<K extends keyof Draft>(key: K, value: Draft[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-    setError("");
-  }
-
-  function validateCurrent() {
-    if (step === 1 && (draft.goal.trim().length < 3 || draft.problem.trim().length < 20))
-      return "Describe the business goal and problem in enough detail to guide the scope.";
-    if (step === 2 && !service) return "Select one canonical service to continue.";
-    if (step === 5 && !draft.budgetBand) return "Choose a budget band or select Not sure yet.";
-    if (
-      step === 6 &&
-      (draft.name.trim().length < 2 ||
-        !draft.email.includes("@") ||
-        draft.phone.trim().length < 7 ||
-        !draft.consent)
-    )
-      return "Complete the contact fields and consent before submitting.";
-    return "";
-  }
-
-  function next() {
-    const message = validateCurrent();
-    if (message) return setError(message);
-    setStep((current) => Math.min(6, current + 1));
-  }
-
-  function back() {
-    setError("");
-    setStep((current) => Math.max(1, current - 1));
-  }
-
-  function toggleAddon(id: string) {
-    if (!service) return;
-    const selected = new Set(draft.addonIds);
-    const addon = service.addons.find((item) => item.id === id);
-    if (!addon) return;
-    if (selected.has(id)) selected.delete(id);
-    else {
-      for (const conflict of addon.conflicts ?? []) selected.delete(conflict);
-      selected.add(id);
-      for (const required of addon.requires ?? []) selected.add(required);
-    }
-    update("addonIds", [...selected]);
-  }
+      })
+      .catch(() => {});
+  }, [initialDraftToken]);
 
   async function saveDraft() {
-    setSavingDraft(true);
-    setDraftError("");
-    setDraftNotice("");
-    setCopiedLink(false);
-
+    setSaving(true);
+    setError("");
     try {
       const response = await fetch("/api/drafts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...draft, step })
+        body: JSON.stringify(draft),
       });
-      const body = (await response.json()) as { draftToken?: string; error?: string };
-      if (!response.ok || !body.draftToken) {
-        throw new Error(body.error || "Could not persist configuration draft.");
-      }
-
-      setDraftToken(body.draftToken);
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(DRAFT_STORAGE_KEY, body.draftToken);
-        const url = new URL(window.location.href);
-        url.searchParams.set("draft", body.draftToken);
-        window.history.replaceState({}, "", url.toString());
-      }
-      setDraftNotice("Opaque draft token saved for 30 days.");
-    } catch (cause) {
-      setDraftError(
-        cause instanceof Error ? cause.message : "Could not persist configuration draft."
-      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save server draft.");
+      setDraftToken(data.draftToken);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save draft.");
     } finally {
-      setSavingDraft(false);
+      setSaving(false);
     }
   }
 
-  async function copyResumeLink() {
-    if (!draftToken || typeof window === "undefined") return;
-    const resumeUrl = `${window.location.origin}/build?draft=${encodeURIComponent(draftToken)}`;
+  function exportMarkdown() {
+    const content = buildBriefMarkdown(draft);
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nre-project-blueprint-${draft.serviceId || "draft"}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportJson() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      catalogVersion: "v5",
+      goal: draft.goal,
+      problem: draft.problem,
+      serviceId: draft.serviceId || null,
+      serviceName: service?.name ?? null,
+      addonIds: draft.addonIds,
+      startingEstimateBdt: estimate?.totalBdt ?? null,
+      budgetBand: draft.budgetBand,
+      targetDate: draft.targetDate || null,
+      designDirection: draft.designDirection,
+      commercialNote: "Starting From estimate only; non-binding until formal quotation.",
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nre-project-blueprint-${draft.serviceId || "draft"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copyBlueprint() {
     try {
-      await navigator.clipboard.writeText(resumeUrl);
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2500);
+      await navigator.clipboard.writeText(buildBriefMarkdown(draft));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      setDraftNotice(`Resume URL: ${resumeUrl}`);
+      setError("Clipboard access unavailable in this browser context. Use Download .md instead.");
     }
   }
 
-  async function submit() {
-    const message = validateCurrent();
-    if (message) return setError(message);
+  function toggleAddon(addonId: string) {
+    setDraft((current) => {
+      const next = new Set(current.addonIds);
+      if (next.has(addonId)) next.delete(addonId);
+      else next.add(addonId);
+      return { ...current, addonIds: [...next] };
+    });
+  }
+
+  async function submitBrief(event: React.FormEvent) {
+    event.preventDefault();
     setSubmitting(true);
     setError("");
     try {
@@ -233,360 +237,433 @@ export function ProjectBuilder({
         body: JSON.stringify({
           ...draft,
           targetDate: draft.targetDate || null,
-          attribution: {
-            source: new URLSearchParams(location.search).get("utm_source"),
-            campaign: new URLSearchParams(location.search).get("utm_campaign")
-          }
-        })
+          attribution: { source: "web-builder-v5", campaign: null },
+        }),
       });
-      const body = (await response.json()) as { reference?: string; error?: string };
-      if (!response.ok || !body.reference)
-        throw new Error(body.error || "The project brief could not be submitted.");
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
-      }
-      setReference(body.reference);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The project brief could not be submitted.");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Please check the required fields.");
+      setSubmitted(data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not submit brief.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (reference)
+  if (submitted) {
     return (
-      <div className="shell" style={{ padding: "3rem 1rem", maxWidth: "760px", margin: "0 auto" }}>
-        <div className="success-box" style={{ borderRadius: "4px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: ".75rem", marginBottom: "1rem" }}>
-            <CheckCircle2 size={32} className="cyan" />
-            <h2 style={{ margin: 0, fontSize: "1.75rem" }}>Project brief received.</h2>
-          </div>
-          <p style={{ margin: "0 0 1.25rem", color: "var(--text)" }}>
-            Your reference is <strong className="mono cyan" style={{ fontSize: "1.1rem" }}>{reference}</strong>.
-            This confirms secure intake into NOTREAL ENGINE&apos;s queue.
+      <div className="shell" style={{ padding: "4rem 0" }}>
+        <div className="success-box">
+          <div className="section-code">PROJECT BRIEF RECORDED</div>
+          <h1 style={{ marginTop: 0 }}>Request {submitted.reference} received.</h1>
+          <p className="muted" style={{ maxWidth: 680 }}>
+            {submitted.next} Submitting a project brief does not create an order or payment
+            obligation. A human engineer reviews every submission before issuing a written quotation.
           </p>
-          <div style={{ background: "rgba(0,0,0,0.3)", padding: "1.25rem", border: "1px solid var(--line)", borderRadius: "4px", margin: "1.5rem 0" }}>
-            <h3 style={{ fontSize: "1rem", margin: "0 0 .75rem", color: "var(--cyan)", textTransform: "uppercase", letterSpacing: ".05em" }}>
-              What happens next:
-            </h3>
-            <ol style={{ margin: 0, paddingLeft: "1.25rem", lineHeight: 1.7, fontSize: ".9rem", color: "var(--muted)" }}>
-              <li><strong>Technical Qualification:</strong> Our engineering leads review your goal, scope, and requested capabilities within 24 business hours.</li>
-              <li><strong>Formal Quotation:</strong> We prepare a transparent, itemized quotation with milestones and revision schedule.</li>
-              <li><strong>Workspace Review:</strong> You can review, request adjustments, and authorize the quote directly in your client portal.</li>
-            </ol>
-          </div>
-          <p className="muted" style={{ fontSize: ".8rem", margin: "0 0 1.5rem" }}>
-            This confirms intake only; it is not a quotation, order, payment, or delivery commitment.
-          </p>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-            <Link href="/services" className="btn">Browse Services</Link>
-            <Link href="/dashboard" className="btn btn-primary">Client Workspace</Link>
+          <div className="hero-actions" style={{ marginTop: "1.5rem" }}>
+            <Link className="btn btn-primary" href="/dashboard">
+              Open NRE OFFICE Workspace
+            </Link>
+            <button type="button" className="btn" onClick={exportMarkdown}>
+              <Download size={15} />
+              <span>Download brief (.md)</span>
+            </button>
+            <Link className="btn" href="/services">
+              Return to Services
+            </Link>
           </div>
         </div>
       </div>
     );
+  }
 
   return (
     <div className="builder">
       <div className="builder-head">
         <div className="shell">
-          <span className="mono cyan">ENGINE//OS · PROJECT CONFIGURATION</span>
-          <h1>Configure your project</h1>
-          <div className="stepper" aria-label="Project builder progress">
-            {steps.map((label, index) => (
-              <div
-                key={label}
-                className={`step-node ${step === index + 1 ? "active" : step > index + 1 ? "done" : ""}`}
-              >
-                {String(index + 1).padStart(2, "0")} · {label}
-              </div>
-            ))}
+          <div className="section-code">NRE SELECT · INTERACTIVE PROJECT BUILDER</div>
+          <h1>Configure your project scope.</h1>
+          <div className="stepper" aria-label="Configuration progress">
+            {steps.map((label, index) => {
+              const node = index + 1;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setDraft((c) => ({ ...c, step: node }))}
+                  className={`step-node${draft.step === node ? " active" : draft.step > node ? " done" : ""}`}
+                  style={{ background: "none", borderRight: 0, borderLeft: 0, borderBottom: 0, textAlign: "left", cursor: "pointer" }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
+
       <div className="shell builder-body">
-        <div className="builder-main">
-          {step === 1 && (
-            <>
-              <h2>What should this project change for your business?</h2>
-              <p>Start with the outcome. Technical decisions come later.</p>
-              <div className="form-grid">
-                <div className="field full">
-                  <label htmlFor="goal">Primary business goal</label>
-                  <input
-                    id="goal"
-                    className="input"
-                    value={draft.goal}
-                    onChange={(e) => update("goal", e.target.value)}
-                    placeholder="Example: reduce manual order tracking"
-                  />
-                </div>
-                <div className="field full">
-                  <label htmlFor="problem">Current problem and desired result</label>
-                  <textarea
-                    id="problem"
-                    className="textarea"
-                    value={draft.problem}
-                    onChange={(e) => update("problem", e.target.value)}
-                    placeholder="Describe the current workflow, who uses it, and what should improve."
-                  />
-                </div>
-              </div>
-            </>
+        <form className="builder-main" onSubmit={submitBrief}>
+          {error && (
+            <div className="error-box" role="alert">
+              {error}
+            </div>
           )}
-          {step === 2 && (
+
+          {draft.step === 1 && (
             <>
-              <h2>Select the closest service</h2>
-              <p>You can revise this choice during quotation review.</p>
-              <div className="service-options">
-                {services.map((item) => (
-                  <label className="service-option" key={item.id}>
-                    <input
-                      type="radio"
-                      name="service"
-                      value={item.id}
-                      checked={draft.serviceId === item.id}
-                      onChange={() => {
-                        update("serviceId", item.id);
-                        update("addonIds", []);
-                      }}
-                    />
-                    <span>
-                      <strong>{item.name}</strong>
-                      <small>{item.summary}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-          {step === 3 && service && (
-            <>
-              <h2>Choose optional capabilities</h2>
-              <p>Included capabilities are always part of the initial scope. Add-ons remain subject to quotation.</p>
-              <div className="list-rail" style={{ marginBottom: "1.5rem" }}>
-                {service.included.map((item) => (
-                  <div className="list-row" key={item}>
-                    <CheckCircle2 size={18} />
-                    <span>
-                      {item} <small className="mono muted"> · INCLUDED</small>
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="addon-options">
-                {service.addons.map((addon) => (
-                  <label className="addon-option" key={addon.id}>
-                    <input
-                      type="checkbox"
-                      checked={draft.addonIds.includes(addon.id)}
-                      onChange={() => toggleAddon(addon.id)}
-                    />
-                    <span>
-                      <strong>{addon.label}</strong>
-                      <small>
-                        {addon.requires?.length
-                          ? "Required dependencies are selected automatically."
-                          : "Quoted after scope review."}
-                      </small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-          {step === 4 && (
-            <>
-              <h2>Define the design direction</h2>
-              <p>Describe how the finished product should feel. Do not include passwords, private credentials, or sensitive customer data.</p>
+              <h2>Business goal and operational context</h2>
+              <p>Describe what the system should achieve. You can export your structured blueprint for free before sharing contact details.</p>
               <div className="field">
-                <label htmlFor="design">Direction, references, and constraints</label>
+                <label htmlFor="goal">Primary goal</label>
+                <input
+                  id="goal"
+                  className="input"
+                  value={draft.goal}
+                  onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
+                  placeholder="e.g. Launch a bilingual business website or build a client portal"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="problem">Current workflow, challenges, and key requirements (min 20 chars for submission)</label>
                 <textarea
-                  id="design"
+                  id="problem"
                   className="textarea"
-                  value={draft.designDirection}
-                  onChange={(e) => update("designDirection", e.target.value)}
-                  placeholder="Example: calm, premium, bilingual, mobile-first; existing brand guide available."
+                  value={draft.problem}
+                  onChange={(e) => setDraft({ ...draft, problem: e.target.value })}
+                  placeholder="Who uses the system, what breaks today, and what must work cleanly on day one?"
                 />
               </div>
             </>
           )}
-          {step === 5 && (
+
+          {draft.step === 2 && (
             <>
-              <h2>Budget and timing</h2>
-              <p>These inputs guide feasibility; they do not create an approved price or delivery guarantee.</p>
+              <h2>Select a canonical v5 service</h2>
+              <p>Choose from 13 Standalone Services or 9 Core Technical Services. Public BDT figures are Starting From estimates only.</p>
+
+              <div className="catalog-toolbar" style={{ marginBottom: "1.25rem", paddingBottom: "1rem" }}>
+                <div className="segment-tabs">
+                  <button
+                    type="button"
+                    className={`segment-tab${serviceSegmentTab === "standalone" ? " active" : ""}`}
+                    onClick={() => setServiceSegmentTab("standalone")}
+                  >
+                    Standalone ({standaloneServices.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`segment-tab${serviceSegmentTab === "core_technical" ? " active" : ""}`}
+                    onClick={() => setServiceSegmentTab("core_technical")}
+                  >
+                    Core Technical ({coreTechnicalServices.length})
+                  </button>
+                </div>
+                <div className="catalog-search-wrap" style={{ minWidth: 200 }}>
+                  <Search size={14} />
+                  <input
+                    type="search"
+                    className="catalog-search-input"
+                    placeholder="Filter services..."
+                    value={serviceQuery}
+                    onChange={(e) => setServiceQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="service-options">
+                {visibleServices.map((item) => (
+                  <label key={item.id} className="service-option">
+                    <input
+                      type="radio"
+                      name="serviceId"
+                      checked={draft.serviceId === item.id}
+                      onChange={() => setDraft({ ...draft, serviceId: item.id, addonIds: [] })}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: ".75rem", flexWrap: "wrap" }}>
+                        <strong>
+                          <span className="mono cyan" style={{ marginRight: 8 }}>{item.id}</span>
+                          {item.name}
+                        </strong>
+                        <span className="mono tabular" style={{ fontSize: ".8rem", color: "var(--text)" }}>
+                          {formatStartingFromBdt(item.startingPriceBdt)}
+                        </span>
+                      </div>
+                      <small>{item.summary}</small>
+                      {item.scopeCaveat && (
+                        <small style={{ color: "var(--gold)", marginTop: 4 }}>
+                          Note: {item.scopeCaveat}
+                        </small>
+                      )}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {draft.step === 3 && (
+            <>
+              <h2>Compatible add-ons</h2>
+              <p>
+                Only verified v5 add-ons compatible with your selected service are shown. Compatible
+                add-ons are scoped once without double-billing overlapping features.
+              </p>
+              {!service ? (
+                <div className="error-box">Select a service in Step 02 first.</div>
+              ) : service.addons.length === 0 ? (
+                <div className="panel">
+                  <div className="panel-body">
+                    <strong style={{ display: "block", marginBottom: ".4rem" }}>
+                      No separate add-ons apply to {service.id} — {service.name}
+                    </strong>
+                    <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
+                      This engagement is scoped directly around your technical brief. Continue to
+                      Design & Notes or describe any special integration requirements in Step 04.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="addon-options">
+                  {service.addons.map((addon) => (
+                    <label key={addon.id} className="addon-option">
+                      <input
+                        type="checkbox"
+                        checked={draft.addonIds.includes(addon.id)}
+                        onChange={() => toggleAddon(addon.id)}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: ".75rem", flexWrap: "wrap" }}>
+                          <strong>
+                            <span className="mono cyan" style={{ marginRight: 8 }}>{addon.id}</span>
+                            {addon.label}
+                          </strong>
+                          <span className="mono tabular" style={{ fontSize: ".78rem", color: "var(--silver)" }}>
+                            + {formatStartingFromBdt(addon.startingPriceBdt)}
+                          </span>
+                        </div>
+                        <small>{addon.summary}</small>
+                        {addon.note && <small style={{ color: "var(--gold)", marginTop: 4 }}>{addon.note}</small>}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {draft.step === 4 && (
+            <>
+              <h2>Design, language & technical notes</h2>
+              <p>Share references, Bangla/English requirements, existing URLs, or brand constraints.</p>
+              <div className="field">
+                <label htmlFor="designDirection">Design direction and technical references</label>
+                <textarea
+                  id="designDirection"
+                  className="textarea"
+                  value={draft.designDirection}
+                  onChange={(e) => setDraft({ ...draft, designDirection: e.target.value })}
+                  placeholder="Existing website URL, brand palette preferences, Bangla/English language needs, or reference links..."
+                />
+              </div>
+            </>
+          )}
+
+          {draft.step === 5 && (
+            <>
+              <h2>Budget band and target launch window</h2>
+              <p>Used only to calibrate architecture options and milestone phases for your written quotation.</p>
               <div className="form-grid">
                 <div className="field">
-                  <label htmlFor="budget">Working budget band</label>
+                  <label htmlFor="budgetBand">Estimated budget band (BDT)</label>
                   <select
-                    id="budget"
+                    id="budgetBand"
                     className="select"
                     value={draft.budgetBand}
-                    onChange={(e) => update("budgetBand", e.target.value as Draft["budgetBand"])}
+                    onChange={(e) =>
+                      setDraft({ ...draft, budgetBand: e.target.value as Draft["budgetBand"] })
+                    }
                   >
-                    <option value="not-sure">Not sure yet</option>
                     <option value="under-25k">Under ৳25,000</option>
-                    <option value="25k-75k">৳25,000–৳75,000</option>
-                    <option value="75k-200k">৳75,000–৳200,000</option>
+                    <option value="25k-75k">৳25,000 – ৳75,000</option>
+                    <option value="75k-200k">৳75,000 – ৳200,000</option>
                     <option value="200k-plus">৳200,000+</option>
+                    <option value="not-sure">Not sure yet — guide me</option>
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="date">Desired target date</label>
+                  <label htmlFor="targetDate">Target date (optional)</label>
                   <input
-                    id="date"
+                    id="targetDate"
                     type="date"
                     className="input"
                     value={draft.targetDate}
-                    min={new Date().toISOString().slice(0, 10)}
-                    onChange={(e) => update("targetDate", e.target.value)}
+                    onChange={(e) => setDraft({ ...draft, targetDate: e.target.value })}
                   />
                 </div>
               </div>
             </>
           )}
-          {step === 6 && (
+
+          {draft.step === 6 && (
             <>
-              <h2>Review and submit the brief</h2>
-              <p>Your contact details are used to review this request and securely associate it with a verified account later.</p>
+              <h2>Contact details and quotation request</h2>
+              <p>
+                Submitting creates a structured lead and project brief for human review. No order,
+                charge, or automatic checkout is triggered.
+              </p>
               <div className="form-grid">
                 <div className="field">
-                  <label htmlFor="name">Full name</label>
+                  <label htmlFor="name">Your name</label>
                   <input
                     id="name"
                     className="input"
+                    required
                     value={draft.name}
-                    onChange={(e) => update("name", e.target.value)}
-                    autoComplete="name"
+                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="organization">Company / organization (optional)</label>
+                  <input
+                    id="organization"
+                    className="input"
+                    value={draft.organization}
+                    onChange={(e) => setDraft({ ...draft, organization: e.target.value })}
                   />
                 </div>
                 <div className="field">
                   <label htmlFor="email">Email</label>
                   <input
                     id="email"
-                    className="input"
-                    value={draft.email}
-                    onChange={(e) => update("email", e.target.value)}
-                    autoComplete="email"
                     type="email"
+                    className="input"
+                    required
+                    value={draft.email}
+                    onChange={(e) => setDraft({ ...draft, email: e.target.value })}
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="phone">Phone</label>
+                  <label htmlFor="phone">Phone / WhatsApp</label>
                   <input
                     id="phone"
                     className="input"
+                    required
                     value={draft.phone}
-                    onChange={(e) => update("phone", e.target.value)}
-                    autoComplete="tel"
+                    onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
                   />
                 </div>
-                <div className="field">
-                  <label htmlFor="org">Organization</label>
-                  <input
-                    id="org"
-                    className="input"
-                    value={draft.organization}
-                    onChange={(e) => update("organization", e.target.value)}
-                    autoComplete="organization"
-                  />
-                </div>
-                <label className="addon-option field full">
-                  <input
-                    type="checkbox"
-                    checked={draft.consent}
-                    onChange={(e) => update("consent", e.target.checked)}
-                  />
-                  <span>
-                    <strong>I consent to project-request processing.</strong>
-                    <small>This does not accept commercial or legal terms and does not authorize payment.</small>
-                  </span>
-                </label>
               </div>
+              <label className="addon-option" style={{ marginTop: ".5rem" }}>
+                <input
+                  type="checkbox"
+                  checked={draft.consent}
+                  onChange={(e) => setDraft({ ...draft, consent: e.target.checked })}
+                />
+                <span>
+                  I agree that NotRealEngine may review this project brief and contact me regarding
+                  scoping and a formal quotation.
+                </span>
+              </label>
             </>
           )}
-          {error && (
-            <div className="error-box" role="alert">
-              {error}
-            </div>
-          )}
+
           <div className="builder-actions">
-            <button className="btn" type="button" onClick={back} disabled={step === 1}>
-              <ArrowLeft size={17} /> Back
-            </button>
-            {step < 6 ? (
-              <button className="btn btn-primary" type="button" onClick={next}>
-                Continue <ArrowRight size={17} />
+            <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
+              {draft.step > 1 && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setDraft({ ...draft, step: draft.step - 1 })}
+                >
+                  Back
+                </button>
+              )}
+              <button type="button" className="btn btn-quiet" onClick={saveDraft} disabled={saving}>
+                {saving ? "Saving..." : "Save server draft"}
               </button>
-            ) : (
-              <button className="btn btn-primary" type="button" onClick={submit} disabled={submitting}>
-                {submitting ? "Submitting…" : "Submit project brief"} <ArrowRight size={17} />
-              </button>
-            )}
-          </div>
-        </div>
-        <aside className="builder-summary">
-          <h2>Project summary</h2>
-          <div className="summary-row">
-            <span>GOAL</span>
-            {draft.goal || "Not set"}
-          </div>
-          <div className="summary-row">
-            <span>SERVICE</span>
-            {service?.name || "Not selected"}
-          </div>
-          <div className="summary-row">
-            <span>ADD-ONS</span>
-            {draft.addonIds.length || "None selected"}
-          </div>
-          <div className="summary-row">
-            <span>BUDGET</span>
-            {draft.budgetBand.replaceAll("-", " ")}
-          </div>
-          <div className="summary-row">
-            <span>COMMERCIAL STATUS</span>
-            <strong className="gold">QUOTE REQUIRED</strong>
-          </div>
-
-          <div className="summary-row" style={{ display: "grid", gap: ".6rem" }}>
-            <button
-              type="button"
-              className="btn"
-              onClick={saveDraft}
-              disabled={savingDraft}
-              style={{ width: "100%", fontSize: ".82rem" }}
-            >
-              <Bookmark size={15} />
-              {savingDraft ? "Saving draft…" : "Save draft for later"}
-            </button>
-
-            {draftToken && (
+            </div>
+            {draft.step < 6 ? (
               <button
                 type="button"
-                className="btn btn-quiet"
-                onClick={copyResumeLink}
-                style={{ width: "100%", fontSize: ".78rem", border: "1px solid var(--line)" }}
+                className="btn btn-primary"
+                onClick={() => setDraft({ ...draft, step: draft.step + 1 })}
               >
-                {copiedLink ? <Check size={14} className="cyan" /> : <Copy size={14} />}
-                {copiedLink ? "Resume link copied" : "Copy draft resume link"}
+                Continue
+              </button>
+            ) : (
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
+                {submitting ? "Submitting..." : "Submit quotation request"}
               </button>
             )}
+          </div>
+        </form>
 
-            {draftNotice && (
-              <span className="mono cyan" style={{ fontSize: ".72rem", lineHeight: 1.4 }}>
-                {draftNotice}
-              </span>
-            )}
-            {draftError && (
-              <span className="mono" style={{ fontSize: ".72rem", lineHeight: 1.4, color: "var(--gold)" }}>
-                {draftError}
-              </span>
-            )}
+        <aside className="builder-summary">
+          <h2>Live Blueprint Summary</h2>
+
+          <div className="summary-row">
+            <span>Selected Service</span>
+            <strong>
+              {service ? `${service.id} — ${service.name}` : "Not selected yet"}
+            </strong>
           </div>
 
-          <p className="muted" style={{ fontSize: ".78rem", lineHeight: 1.5, marginBottom: 0 }}>
-            Unsaved edits stay in this browser tab. Saved drafts use an opaque token valid for 30 days; brief submission requires configured server intake.
-          </p>
+          <div className="summary-row">
+            <span>Compatible Add-ons</span>
+            <strong className="tabular">
+              {estimate && estimate.validAddons.length > 0
+                ? `${estimate.validAddons.length} selected (+${formatBdt(estimate.addonsBdt)})`
+                : "None selected"}
+            </strong>
+          </div>
+
+          <div className="summary-row">
+            <span>Indicative Launch Starting From</span>
+            <strong className="cyan mono tabular" style={{ fontSize: "1.08rem" }}>
+              {estimate ? formatStartingFromBdt(estimate.totalBdt) : "Select a service"}
+            </strong>
+            <small className="muted" style={{ display: "block", marginTop: ".35rem", fontSize: ".76rem", lineHeight: 1.45 }}>
+              Non-binding Starting From estimate. Final price is confirmed in a written quotation after human review.
+            </small>
+          </div>
+
+          {service?.scopeCaveat && (
+            <div className="summary-row">
+              <div style={{ display: "flex", gap: ".45rem", color: "var(--gold)", fontSize: ".76rem", lineHeight: 1.45 }}>
+                <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                <span>{service.scopeCaveat}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="summary-row">
+            <span>Free Export (No Login Required)</span>
+            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", marginTop: ".4rem" }}>
+              <button type="button" className="btn" style={{ minHeight: 36, padding: ".4rem .7rem", fontSize: ".76rem" }} onClick={copyBlueprint}>
+                {copied ? <Check size={13} /> : <Copy size={13} />}
+                <span>{copied ? "Copied" : "Copy MD"}</span>
+              </button>
+              <button type="button" className="btn" style={{ minHeight: 36, padding: ".4rem .7rem", fontSize: ".76rem" }} onClick={exportMarkdown}>
+                <Download size={13} />
+                <span>.md</span>
+              </button>
+              <button type="button" className="btn" style={{ minHeight: 36, padding: ".4rem .7rem", fontSize: ".76rem" }} onClick={exportJson}>
+                <Download size={13} />
+                <span>.json</span>
+              </button>
+            </div>
+          </div>
+
+          {draftToken && (
+            <div className="summary-row">
+              <span>Server Draft Saved</span>
+              <Link className="cyan mono" style={{ fontSize: ".78rem" }} href={`/build/review?draft=${draftToken}`}>
+                Resume link ready →
+              </Link>
+            </div>
+          )}
         </aside>
       </div>
     </div>
