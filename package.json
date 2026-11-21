@@ -15,6 +15,7 @@
     "verify:staging": "node scripts/verify-staging.mjs"
   },
   "dependencies": {
+    "@google/genai": "^3.6.1",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.119.0",
     "lucide-react": "^0.468.0",

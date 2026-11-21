@@ -1,6 +1,11 @@
 import { LifeBuoy } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { SupportTicketForm } from "@/components/support-ticket-form";
+import {
+  ClientPulseEligibilityPanel,
+  type PulseSubscriptionRecord,
+} from "@/components/pulse-operations-panels";
+import { type PulseSubscriptionStatus } from "@/lib/domain/pulse";
 
 export default async function SupportPage() {
   const { supabase, user } = await requireUser();
@@ -21,11 +26,30 @@ export default async function SupportPage() {
     .select("id, service_id")
     .order("created_at", { ascending: false });
 
-  // Fetch tickets
-  const { data: tickets } = await supabase
-    .from("support_tickets")
-    .select("id, subject, body, state, priority, created_at, project_id")
-    .order("created_at", { ascending: false });
+  // Fetch tickets & NRE PULSE eligibility requests
+  const [{ data: tickets }, { data: pulseRows }] = await Promise.all([
+    supabase
+      .from("support_tickets")
+      .select("id, subject, body, state, priority, created_at, project_id")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("pulse_subscriptions")
+      .select("id, organization_id, project_id, plan_id, status, coverage_module_ids, billing_mode, scope_notes, created_at, reviewed_at")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const pulseSubscriptions: PulseSubscriptionRecord[] = (pulseRows ?? []).map((row) => ({
+    id: row.id,
+    organizationId: row.organization_id,
+    projectId: row.project_id ?? null,
+    planId: row.plan_id as "PULSE_FLEX" | "PULSE_CORE" | "PULSE_PRIME",
+    status: row.status as PulseSubscriptionStatus,
+    coverageModuleIds: Array.isArray(row.coverage_module_ids) ? (row.coverage_module_ids as string[]) : [],
+    billingMode: row.billing_mode || "manual_invoicing_only",
+    scopeNotes: row.scope_notes ?? null,
+    createdAt: row.created_at,
+    reviewedAt: row.reviewed_at ?? null,
+  }));
 
   return (
     <div style={{ maxWidth: "1050px" }}>
@@ -128,6 +152,15 @@ export default async function SupportPage() {
           </div>
         </div>
       </div>
+
+      <ClientPulseEligibilityPanel
+        organizationId={organizationId}
+        projects={(projects || []).map((p) => ({
+          id: p.id,
+          serviceId: p.service_id,
+        }))}
+        subscriptions={pulseSubscriptions}
+      />
     </div>
   );
 }

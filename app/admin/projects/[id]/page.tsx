@@ -5,6 +5,13 @@ import { requireAdmin } from "@/lib/auth";
 import { resolveServiceLabel } from "@/lib/catalog";
 import { type ProjectState } from "@/lib/domain/states";
 import { AdminProjectControls, AdminMilestoneRow } from "@/components/admin-project-controls";
+import {
+  AdminProjectOfficePanels,
+  type ProjectExpertRecord,
+  type ProjectMessageRecord,
+  type ProjectTimelineRecord,
+  type StaffMemberOption,
+} from "@/components/project-office-panels";
 
 export default async function AdminProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,6 +68,79 @@ export default async function AdminProjectDetailPage({ params }: { params: Promi
     .select("id, sequence, request, state, created_at")
     .eq("project_id", id)
     .order("sequence", { ascending: false });
+
+  // Fetch NRE OFFICE records (human experts, verified timeline, project messages, staff list)
+  const [
+    { data: assignmentsData },
+    { data: timelineData },
+    { data: messagesData },
+    { data: staffData },
+  ] = await Promise.all([
+    supabase
+      .from("project_assignments")
+      .select("id, assignee_id, role_label, created_at, profiles:assignee_id ( full_name )")
+      .eq("project_id", id)
+      .eq("active", true)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("project_timeline_events")
+      .select("id, event_type, title, detail, visible_to_client, created_at, profiles:actor_id ( full_name )")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("project_messages")
+      .select("id, body, internal_only, created_at, profiles:author_id ( full_name, is_staff )")
+      .eq("project_id", id)
+      .order("created_at", { ascending: true })
+      .limit(100),
+    supabase
+      .from("profiles")
+      .select("id, full_name")
+      .eq("is_staff", true)
+      .order("full_name", { ascending: true }),
+  ]);
+
+  const experts: ProjectExpertRecord[] = (assignmentsData ?? []).map((row) => {
+    const profile = row.profiles as unknown as { full_name?: string | null } | null;
+    return {
+      id: row.id,
+      assigneeId: row.assignee_id,
+      assigneeName: profile?.full_name || "NotRealEngine Specialist",
+      roleLabel: row.role_label,
+      createdAt: row.created_at,
+    };
+  });
+
+  const timeline: ProjectTimelineRecord[] = (timelineData ?? []).map((row) => {
+    const profile = row.profiles as unknown as { full_name?: string | null } | null;
+    return {
+      id: row.id,
+      eventType: row.event_type,
+      title: row.title,
+      detail: row.detail ?? null,
+      visibleToClient: Boolean(row.visible_to_client),
+      actorName: profile?.full_name || "NotRealEngine Operations",
+      createdAt: row.created_at,
+    };
+  });
+
+  const messages: ProjectMessageRecord[] = (messagesData ?? []).map((row) => {
+    const profile = row.profiles as unknown as { full_name?: string | null; is_staff?: boolean } | null;
+    return {
+      id: row.id,
+      body: row.body,
+      internalOnly: Boolean(row.internal_only),
+      authorName: profile?.full_name || (profile?.is_staff ? "NotRealEngine Staff" : "Client Team"),
+      isStaffAuthor: Boolean(profile?.is_staff),
+      createdAt: row.created_at,
+    };
+  });
+
+  const staffOptions: StaffMemberOption[] = (staffData ?? []).map((s) => ({
+    id: s.id,
+    fullName: s.full_name || `Staff ${s.id.slice(0, 6)}`,
+  }));
 
   const orgName = (project.organizations as unknown as { name?: string })?.name || "Client Organization";
 
@@ -237,6 +317,14 @@ export default async function AdminProjectDetailPage({ params }: { params: Promi
           </div>
         </div>
       )}
+
+      <AdminProjectOfficePanels
+        projectId={project.id}
+        experts={experts}
+        staffOptions={staffOptions}
+        timeline={timeline}
+        messages={messages}
+      />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { motion, useReducedMotion } from "motion/react";
 import {
   Calculator,
   ClipboardCheck,
@@ -9,6 +10,9 @@ import {
   Smartphone,
   Copy,
   Download,
+  FileJson,
+  RotateCcw,
+  Sparkles,
   Check,
   ArrowRight,
   Play,
@@ -17,6 +21,7 @@ import { formatStartingFromBdt, serviceById, services } from "@/lib/catalog";
 import type { LabToolResult } from "@/lib/lab-tools";
 
 type ToolTab = "scope_estimator" | "launch_readiness" | "landing_blueprint" | "app_vs_pwa";
+type PolishTone = "executive_en" | "bilingual_bn_en" | "technical_spec";
 
 const TOOL_TABS: readonly { id: ToolTab; label: string; Icon: typeof Calculator }[] = [
   { id: "scope_estimator", label: "Scope & Add-On Estimator", Icon: Calculator },
@@ -26,12 +31,36 @@ const TOOL_TABS: readonly { id: ToolTab; label: string; Icon: typeof Calculator 
 ];
 
 export function NreLabWorkbench() {
+  const prefersReducedMotion = useReducedMotion();
   const [activeTab, setActiveTab] = useState<ToolTab>("scope_estimator");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<LabToolResult | null>(null);
   const [editableMarkdown, setEditableMarkdown] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // Optional owner-controlled server AI polish state
+  const [aiStatus, setAiStatus] = useState<{ enabled: boolean; reason: string | null } | null>(null);
+  const [aiTone, setAiTone] = useState<PolishTone>("executive_en");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiNotice, setAiNotice] = useState("");
+  const [aiAppliedModel, setAiAppliedModel] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/lab/enhance")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!active || !data) return;
+        setAiStatus({ enabled: Boolean(data.enabled), reason: data.reason ?? null });
+      })
+      .catch(() => {
+        if (active) setAiStatus({ enabled: false, reason: "Owner-controlled AI polish is unavailable." });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Tool 1: Scope Estimator state
   const [serviceId, setServiceId] = useState("S02");
@@ -118,6 +147,8 @@ export function NreLabWorkbench() {
       if (!res.ok) throw new Error(data.error || "Could not run NRE LAB tool.");
       setResult(data as LabToolResult);
       setEditableMarkdown(data.markdown);
+      setAiAppliedModel(null);
+      setAiNotice("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Tool execution failed.");
     } finally {
@@ -149,6 +180,67 @@ export function NreLabWorkbench() {
     a.download = `nre-lab-${activeTab}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadJsonOutput() {
+    if (!result) return;
+    const exportPayload = {
+      tool: activeTab,
+      engine: aiAppliedModel ? `deterministic-v5+server-ai:${aiAppliedModel}` : result.engine,
+      title: result.title,
+      summary: result.summary,
+      recommendedServiceId: result.recommendedServiceId,
+      startingPriceLabel: result.startingPriceLabel,
+      highlights: result.highlights,
+      markdown: editableMarkdown,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nre-lab-${activeTab}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function resetOutput() {
+    setResult(null);
+    setEditableMarkdown("");
+    setError("");
+    setAiNotice("");
+    setAiAppliedModel(null);
+  }
+
+  async function requestOptionalAiPolish() {
+    if (!result || !editableMarkdown) return;
+    setAiLoading(true);
+    setAiNotice("");
+    try {
+      const res = await fetch("/api/lab/enhance", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tool: activeTab,
+          deterministicMarkdown: editableMarkdown,
+          tone: aiTone,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAiNotice(data.error || "Optional AI polish is currently unavailable.");
+        return;
+      }
+      setEditableMarkdown(data.polishedMarkdown);
+      setAiAppliedModel(data.model || "server-ai");
+      setAiNotice("Server-side AI editorial polish applied. Verify all BDT Starting From figures before export.");
+    } catch {
+      setAiNotice("Could not reach the server AI gateway. Your deterministic brief remains intact.");
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   return (
@@ -467,10 +559,14 @@ export function NreLabWorkbench() {
         <div className="lab-panel">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: ".75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
             <div className="section-code" style={{ margin: 0 }}>
-              {result ? `RESULT · ${result.engine.toUpperCase()}` : "OUTPUT WORKSPACE"}
+              {result
+                ? aiAppliedModel
+                  ? "RESULT · DETERMINISTIC V5 + OWNER-GATED AI POLISH"
+                  : "RESULT · DETERMINISTIC CATALOG V5 ENGINE"
+                : "OUTPUT WORKSPACE · DETERMINISTIC V5"}
             </div>
             {result && (
-              <div style={{ display: "flex", gap: ".45rem" }}>
+              <div style={{ display: "flex", gap: ".4rem", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   className="btn"
@@ -489,6 +585,24 @@ export function NreLabWorkbench() {
                   <Download size={13} />
                   <span>.md</span>
                 </button>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ minHeight: 34, padding: ".35rem .65rem", fontSize: ".75rem" }}
+                  onClick={downloadJsonOutput}
+                >
+                  <FileJson size={13} />
+                  <span>.json</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ minHeight: 34, padding: ".35rem .65rem", fontSize: ".75rem" }}
+                  onClick={resetOutput}
+                >
+                  <RotateCcw size={13} />
+                  <span>Reset</span>
+                </button>
               </div>
             )}
           </div>
@@ -496,15 +610,22 @@ export function NreLabWorkbench() {
           {!result ? (
             <div className="empty" style={{ minHeight: 320 }}>
               <div>
-                <strong>Instant, editable engineering output</strong>
-                <p style={{ margin: 0, maxWidth: 340, lineHeight: 1.55 }}>
-                  Configure the inputs on the left and run the tool to generate a structured brief
-                  you can edit, download, or send directly into the Project Builder.
+                <strong>Instant, deterministic engineering output</strong>
+                <p style={{ margin: 0, maxWidth: 360, lineHeight: 1.55 }}>
+                  Configure the inputs on the left and run the tool to generate a structured v5
+                  brief you can edit, export as Markdown or JSON, or send directly into the Project
+                  Builder.
                 </p>
               </div>
             </div>
           ) : (
-            <div style={{ display: "grid", gap: "1rem" }}>
+            <motion.div
+              key={`${activeTab}-${result.title}`}
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              style={{ display: "grid", gap: "1rem" }}
+            >
               <div>
                 <h3 style={{ margin: "0 0 .35rem", fontSize: "1.2rem" }}>{result.title}</h3>
                 <p className="muted" style={{ margin: 0, fontSize: ".88rem", lineHeight: 1.55 }}>
@@ -534,6 +655,64 @@ export function NreLabWorkbench() {
                 />
               </div>
 
+              {/* Optional Owner-Controlled Server AI Editorial Polish */}
+              <div
+                style={{
+                  border: "1px solid var(--line)",
+                  background: "var(--bg-deep)",
+                  padding: "0.85rem 0.95rem",
+                  display: "grid",
+                  gap: "0.65rem",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <span className="mono" style={{ fontSize: "0.73rem", color: "var(--silver)", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                    <Sparkles size={13} className="cyan" />
+                    OPTIONAL AI EXECUTIVE POLISH (OWNER-GATED)
+                  </span>
+                  <span className="mono muted" style={{ fontSize: "0.7rem" }}>
+                    {aiStatus?.enabled ? "SERVER GATEWAY READY" : "GATEWAY OFF · DETERMINISTIC MODE"}
+                  </span>
+                </div>
+
+                {aiStatus?.enabled ? (
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                    <select
+                      aria-label="Editorial polish tone"
+                      className="select"
+                      style={{ flex: "1 1 180px", minHeight: 36, fontSize: "0.8rem" }}
+                      value={aiTone}
+                      onChange={(e) => setAiTone(e.target.value as PolishTone)}
+                    >
+                      <option value="executive_en">Executive Summary (English)</option>
+                      <option value="bilingual_bn_en">Bilingual (English + বাংলা)</option>
+                      <option value="technical_spec">Engineering Discovery Note</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={aiLoading}
+                      style={{ minHeight: 36, fontSize: "0.78rem" }}
+                      onClick={requestOptionalAiPolish}
+                    >
+                      <Sparkles size={13} />
+                      <span>{aiLoading ? "Polishing..." : "Polish Brief with AI"}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <p className="muted" style={{ margin: 0, fontSize: "0.78rem", lineHeight: 1.5 }}>
+                    {aiStatus?.reason ||
+                      "Owner-controlled AI editorial polish is currently OFF. Deterministic NRE LAB output above is authoritative and ready to export or send to the Project Builder."}
+                  </p>
+                )}
+
+                {aiNotice && (
+                  <p className="mono cyan" style={{ margin: 0, fontSize: "0.74rem", lineHeight: 1.45 }}>
+                    {aiNotice}
+                  </p>
+                )}
+              </div>
+
               <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
                 <span className="mono tabular cyan" style={{ fontSize: ".82rem", fontWeight: 700 }}>
                   {result.recommendedServiceId} · {result.startingPriceLabel}
@@ -546,7 +725,7 @@ export function NreLabWorkbench() {
                   <ArrowRight size={15} />
                 </Link>
               </div>
-            </div>
+            </motion.div>
           )}
         </div>
       </div>

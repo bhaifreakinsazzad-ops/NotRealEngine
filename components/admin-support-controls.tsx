@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { updateSupportTicketStateAction } from "@/app/admin/actions";
 
-const STATES = ["open", "in_progress", "waiting_client", "resolved", "closed"] as const;
+const STATES = ["open", "waiting_staff", "waiting_client", "resolved", "closed"] as const;
 
 export function AdminSupportControls({
   ticketId,

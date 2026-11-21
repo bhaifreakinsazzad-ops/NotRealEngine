@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { type ProjectState, canTransition, projectTransitions } from "@/lib/domain/states";
+import { pulseEligibilityRequestSchema } from "@/lib/domain/pulse";
 import { enqueueServerOutboxEvent, recordServerAuditLog } from "@/lib/supabase/server-events";
 
 const submitRequirementSchema = z.object({
@@ -531,5 +532,144 @@ export async function updateProfileAction(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unexpected error updating profile.";
     return { ok: false, error: message };
+  }
+}
+
+const clientMessageSchema = z.object({
+  projectId: z.string().uuid("Invalid project ID"),
+  body: z.string().trim().min(2, "Message cannot be empty").max(4000),
+});
+
+export async function postClientProjectMessageAction(
+  input: unknown
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = clientMessageSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid message." };
+  }
+
+  const { projectId, body } = parsed.data;
+
+  try {
+    const { supabase, user } = await requireUser();
+    const { data: project, error: projErr } = await supabase
+      .from("projects")
+      .select("id, organization_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projErr || !project) {
+      return { ok: false, error: "Project not found or unauthorized." };
+    }
+
+    const { data: msg, error: insErr } = await supabase
+      .from("project_messages")
+      .insert({
+        project_id: project.id,
+        organization_id: project.organization_id,
+        author_id: user.id,
+        body,
+        internal_only: false,
+      })
+      .select("id")
+      .single();
+
+    if (insErr || !msg) {
+      return { ok: false, error: insErr?.message ?? "Failed to send message." };
+    }
+
+    await recordServerAuditLog({
+      organizationId: project.organization_id,
+      actorId: user.id,
+      action: "project_message.client_posted",
+      entityType: "project_message",
+      entityId: msg.id,
+      afterData: { projectId },
+    });
+
+    revalidatePath(`/dashboard/projects/${projectId}`);
+    revalidatePath(`/admin/projects/${projectId}`);
+    return { ok: true };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "Unexpected error." };
+  }
+}
+
+export async function requestPulseEligibilityAction(
+  input: unknown
+): Promise<{ ok: true; subscriptionId: string } | { ok: false; error: string }> {
+  const parsed = pulseEligibilityRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid NRE PULSE request." };
+  }
+
+  const { organizationId, projectId, planId, coverageModuleIds, scopeNotes } = parsed.data;
+
+  try {
+    const { supabase, user } = await requireUser();
+
+    const { data: membership } = await supabase
+      .from("organization_memberships")
+      .select("organization_id")
+      .eq("organization_id", organizationId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!membership) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_staff")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profile?.is_staff) {
+        return { ok: false, error: "You are not a member of this organization." };
+      }
+    }
+
+    if (projectId) {
+      const { data: proj } = await supabase
+        .from("projects")
+        .select("id, organization_id")
+        .eq("id", projectId)
+        .single();
+      if (!proj || proj.organization_id !== organizationId) {
+        return { ok: false, error: "Selected project does not belong to your organization." };
+      }
+    }
+
+    const { data: created, error: insErr } = await supabase
+      .from("pulse_subscriptions")
+      .insert({
+        organization_id: organizationId,
+        project_id: projectId || null,
+        plan_id: planId,
+        status: "inquiry",
+        coverage_module_ids: coverageModuleIds,
+        billing_mode: "manual_invoicing_only",
+        scope_notes: scopeNotes,
+        requested_by: user.id,
+      })
+      .select("id")
+      .single();
+
+    if (insErr || !created) {
+      return { ok: false, error: insErr?.message ?? "Failed to submit NRE PULSE eligibility request." };
+    }
+
+    await recordServerAuditLog({
+      organizationId,
+      actorId: user.id,
+      action: "pulse_subscription.eligibility_requested",
+      entityType: "pulse_subscription",
+      entityId: created.id,
+      afterData: { planId, coverageModuleIds, billingMode: "manual_invoicing_only" },
+    });
+
+    revalidatePath("/dashboard/support");
+    revalidatePath("/admin/support");
+    return { ok: true, subscriptionId: created.id };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : "Unexpected error." };
   }
 }

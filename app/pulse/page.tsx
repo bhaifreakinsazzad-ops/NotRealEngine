@@ -49,7 +49,7 @@ export default function PulsePage() {
                 key={plan.id}
                 className={`pulse-card${plan.code === "CORE" ? " featured" : ""}`}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: ".5rem" }}>
                   <span className="mono cyan" style={{ fontSize: ".74rem", fontWeight: 700 }}>
                     {plan.id}
                   </span>

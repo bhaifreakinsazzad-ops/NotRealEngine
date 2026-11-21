@@ -30,7 +30,23 @@ alter table public.services
     check (starting_currency in ('BDT', 'USD')),
   add column if not exists scope_caveat text;
 
--- 3. Upsert canonical v5 categories
+-- 3. Create & upsert canonical v5 categories (public.service_categories was not defined in 0001-0007)
+create table if not exists public.service_categories (
+  id text primary key,
+  name text not null,
+  display_order integer not null unique check (display_order > 0),
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.service_categories enable row level security;
+
+drop policy if exists "public_read_service_categories" on public.service_categories;
+create policy "public_read_service_categories"
+  on public.service_categories for select
+  using (true);
+
+grant select on public.service_categories to anon, authenticated;
+
 insert into public.service_categories (id, name, display_order)
 values
   ('web-presence', 'Web Presence', 101),
@@ -250,12 +266,17 @@ create table if not exists public.project_timeline_events (
   title text not null,
   detail text not null default '',
   visible_to_client boolean not null default true,
-  actor_id uuid references auth.users(id),
+  actor_id uuid references public.profiles(id),
   created_at timestamptz not null default timezone('utc', now())
 );
 
 create index if not exists idx_project_timeline_events_project
   on public.project_timeline_events (project_id, created_at desc);
+
+drop trigger if exists trg_verify_project_timeline_org on public.project_timeline_events;
+create trigger trg_verify_project_timeline_org
+  before insert or update of project_id, organization_id on public.project_timeline_events
+  for each row execute function public.verify_project_organization_match();
 
 -- 9. SI Human-in-the-Loop Draft Suggestions (never autonomous commits)
 create table if not exists public.si_suggestions (
@@ -265,8 +286,8 @@ create table if not exists public.si_suggestions (
   entity_id uuid not null,
   suggestion_kind text not null,
   draft_payload jsonb not null,
-  status text not null default 'draft' check (status in ('draft', 'reviewed', 'applied', 'dismissed')),
-  reviewed_by uuid references auth.users(id),
+  status text not null default 'draft' check (status in ('draft', 'under_review', 'reviewed', 'approved', 'rejected', 'applied', 'dismissed')),
+  reviewed_by uuid references public.profiles(id),
   reviewed_at timestamptz,
   created_at timestamptz not null default timezone('utc', now())
 );
@@ -296,30 +317,44 @@ create policy "public_read_pulse_plans" on public.pulse_plans for select using (
 drop policy if exists "public_read_pulse_modules" on public.pulse_coverage_modules;
 create policy "public_read_pulse_modules" on public.pulse_coverage_modules for select using (true);
 
--- Tenant-scoped timeline events (org members read client-visible events; staff read/write all)
+-- Tenant-scoped timeline events (enforces verified 0-arg current_user_is_staff(), 1-arg is_org_member(uuid), and project-org match)
 drop policy if exists "org_members_read_project_timeline" on public.project_timeline_events;
 create policy "org_members_read_project_timeline"
-  on public.project_timeline_events for select
+  on public.project_timeline_events for select to authenticated
   using (
-    public.is_staff(auth.uid())
-    or (visible_to_client = true and public.is_org_member(organization_id, auth.uid()))
+    public.current_user_is_staff()
+    or (
+      visible_to_client = true
+      and exists (
+        select 1 from public.projects p
+        where p.id = project_id
+          and p.organization_id = organization_id
+          and public.is_org_member(organization_id)
+      )
+    )
   );
 
 drop policy if exists "staff_manage_project_timeline" on public.project_timeline_events;
 create policy "staff_manage_project_timeline"
-  on public.project_timeline_events for all
-  using (public.is_staff(auth.uid()))
-  with check (public.is_staff(auth.uid()));
+  on public.project_timeline_events for all to authenticated
+  using (public.current_user_is_staff())
+  with check (
+    public.current_user_is_staff()
+    and exists (
+      select 1 from public.projects p
+      where p.id = project_id
+        and p.organization_id = organization_id
+    )
+  );
 
 -- SI suggestions are strictly staff-only until reviewed
 drop policy if exists "staff_manage_si_suggestions" on public.si_suggestions;
 create policy "staff_manage_si_suggestions"
-  on public.si_suggestions for all
-  using (public.is_staff(auth.uid()))
-  with check (public.is_staff(auth.uid()));
+  on public.si_suggestions for all to authenticated
+  using (public.current_user_is_staff())
+  with check (public.current_user_is_staff());
 
 grant select on public.service_legacy_aliases, public.catalog_addons, public.service_addon_compatibility, public.pulse_plans, public.pulse_coverage_modules to anon, authenticated;
-grant select on public.project_timeline_events to authenticated;
-grant insert, update, delete on public.project_timeline_events, public.si_suggestions to authenticated;
+grant select, insert, update, delete on public.project_timeline_events, public.si_suggestions to authenticated;
 
 commit;

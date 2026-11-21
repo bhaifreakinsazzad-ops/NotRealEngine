@@ -4,6 +4,12 @@ import { ArrowLeft, AlertCircle, ArrowRight } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { resolveServiceLabel } from "@/lib/catalog";
 import { type ProjectState } from "@/lib/domain/states";
+import {
+  ClientProjectOfficePanels,
+  type ProjectExpertRecord,
+  type ProjectMessageRecord,
+  type ProjectTimelineRecord,
+} from "@/components/project-office-panels";
 
 export default async function ProjectWorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -56,6 +62,66 @@ export default async function ProjectWorkspacePage({ params }: { params: Promise
     .from("project_files")
     .select("id", { count: "exact", head: true })
     .eq("project_id", id);
+
+  // Fetch client-visible NRE OFFICE records (RLS enforces org scope & client visibility)
+  const [{ data: assignmentsData }, { data: timelineData }, { data: messagesData }] = await Promise.all([
+    supabase
+      .from("project_assignments")
+      .select("id, assignee_id, role_label, created_at, profiles:assignee_id ( full_name )")
+      .eq("project_id", id)
+      .eq("active", true)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("project_timeline_events")
+      .select("id, event_type, title, detail, visible_to_client, created_at, profiles:actor_id ( full_name )")
+      .eq("project_id", id)
+      .eq("visible_to_client", true)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("project_messages")
+      .select("id, body, internal_only, created_at, profiles:author_id ( full_name, is_staff )")
+      .eq("project_id", id)
+      .eq("internal_only", false)
+      .order("created_at", { ascending: true })
+      .limit(100),
+  ]);
+
+  const experts: ProjectExpertRecord[] = (assignmentsData ?? []).map((row) => {
+    const profile = row.profiles as unknown as { full_name?: string | null } | null;
+    return {
+      id: row.id,
+      assigneeId: row.assignee_id,
+      assigneeName: profile?.full_name || "NotRealEngine Specialist",
+      roleLabel: row.role_label,
+      createdAt: row.created_at,
+    };
+  });
+
+  const timeline: ProjectTimelineRecord[] = (timelineData ?? []).map((row) => {
+    const profile = row.profiles as unknown as { full_name?: string | null } | null;
+    return {
+      id: row.id,
+      eventType: row.event_type,
+      title: row.title,
+      detail: row.detail ?? null,
+      visibleToClient: Boolean(row.visible_to_client),
+      actorName: profile?.full_name || "NotRealEngine Operations",
+      createdAt: row.created_at,
+    };
+  });
+
+  const messages: ProjectMessageRecord[] = (messagesData ?? []).map((row) => {
+    const profile = row.profiles as unknown as { full_name?: string | null; is_staff?: boolean } | null;
+    return {
+      id: row.id,
+      body: row.body,
+      internalOnly: false,
+      authorName: profile?.full_name || (profile?.is_staff ? "NotRealEngine Team" : "You"),
+      isStaffAuthor: Boolean(profile?.is_staff),
+      createdAt: row.created_at,
+    };
+  });
 
   const resolvedService = resolveServiceLabel(project.service_id);
   const totalMilestones = milestones?.length ?? 0;
@@ -269,6 +335,13 @@ export default async function ProjectWorkspacePage({ params }: { params: Promise
           )}
         </div>
       </div>
+
+      <ClientProjectOfficePanels
+        projectId={project.id}
+        experts={experts}
+        timeline={timeline}
+        messages={messages}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { Brand } from "@/components/brand";
 import { logout } from "@/app/auth/actions";
 
 const clientLinks = [["Overview","/dashboard"],["Projects","/dashboard/projects"],["Orders","/dashboard/orders"],["Billing","/dashboard/billing"],["Support","/dashboard/support"],["Settings","/dashboard/settings"]] as const;
-const adminLinks = [["Overview","/admin"],["Leads","/admin/leads"],["Quotes","/admin/quotes"],["Orders","/admin/orders"],["Projects","/admin/projects"],["Clients","/admin/clients"],["Services","/admin/services"],["Pricing","/admin/pricing"],["Payments","/admin/payments"],["Support","/admin/support"],["Settings","/admin/settings"]] as const;
+const adminLinks = [["Overview","/admin"],["Leads","/admin/leads"],["Quotes","/admin/quotes"],["Orders","/admin/orders"],["Projects","/admin/projects"],["SI Review","/admin/si"],["Clients","/admin/clients"],["Services","/admin/services"],["Pricing","/admin/pricing"],["Payments","/admin/payments"],["Support","/admin/support"],["Settings","/admin/settings"]] as const;
 
 export function AppShell({ children, admin = false, email }: { children: React.ReactNode; admin?: boolean; email?: string }) {
   const links = admin ? adminLinks : clientLinks;

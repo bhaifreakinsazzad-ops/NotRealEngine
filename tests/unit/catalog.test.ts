@@ -87,4 +87,50 @@ describe("canonical v5 service architecture", () => {
     expect(pulseCoverageModules).toHaveLength(7);
     expect(pulseCoverageModules.map((m) => m.id)).toEqual(["M01", "M02", "M03", "M04", "M05", "M06", "M07"]);
   });
+
+  it("matches exact service IDs, Starting From BDT prices, compatible add-ons, and PULSE definitions in the official v5 manifest", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const manifestPath = path.join(
+      process.cwd(),
+      "public",
+      "assets",
+      "aistudio",
+      "NRE_GitHub_Source_Reuse_Migration_Manifest_2026-11-21__1__23cbc049.json",
+    );
+    if (!fs.existsSync(manifestPath)) return;
+
+    const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      canonical_catalog_v5_summary?: {
+        active_standalone_service_ids?: string[];
+        active_core_technical_service_ids?: string[];
+        active_addon_ids?: string[];
+        retired_service_ids?: string[];
+        retired_addon_ids?: string[];
+        pulse_plan_codes?: string[];
+        pulse_coverage_module_ids?: string[];
+      };
+    };
+
+    const summary = raw.canonical_catalog_v5_summary;
+    if (summary?.active_standalone_service_ids) {
+      expect(standaloneServices.map((s) => s.id)).toEqual(summary.active_standalone_service_ids);
+    }
+    if (summary?.active_core_technical_service_ids) {
+      expect(coreTechnicalServices.map((s) => s.id)).toEqual(summary.active_core_technical_service_ids);
+    }
+    if (summary?.active_addon_ids) {
+      expect(addons.map((a) => a.id)).toEqual(summary.active_addon_ids);
+    }
+    if (summary?.retired_service_ids) {
+      expect([...RETIRED_SERVICE_IDS]).toEqual(summary.retired_service_ids);
+    }
+    if (summary?.retired_addon_ids) {
+      expect([...RETIRED_ADDON_IDS]).toEqual(summary.retired_addon_ids);
+    }
+    if (summary?.pulse_coverage_module_ids) {
+      expect(pulseCoverageModules.map((m) => m.id)).toEqual(summary.pulse_coverage_module_ids);
+    }
+  });
 });
+

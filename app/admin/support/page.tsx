@@ -1,26 +1,68 @@
 import { LifeBuoy, ShieldCheck } from "lucide-react";
 import { requireAdmin } from "@/lib/auth";
 import { AdminSupportControls } from "@/components/admin-support-controls";
+import {
+  AdminPulseOperationsPanel,
+  type PulseSubscriptionRecord,
+} from "@/components/pulse-operations-panels";
+import { type PulseSubscriptionStatus } from "@/lib/domain/pulse";
 
 export default async function AdminSupportPage() {
   const { supabase } = await requireAdmin();
 
-  const { data: tickets } = await supabase
-    .from("support_tickets")
-    .select(`
-      id,
-      subject,
-      body,
-      state,
-      priority,
-      created_at,
-      organization_id,
-      project_id,
-      organizations (
-        name
-      )
-    `)
-    .order("created_at", { ascending: false });
+  const [{ data: tickets }, { data: pulseRows }] = await Promise.all([
+    supabase
+      .from("support_tickets")
+      .select(`
+        id,
+        subject,
+        body,
+        state,
+        priority,
+        created_at,
+        organization_id,
+        project_id,
+        organizations (
+          name
+        )
+      `)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("pulse_subscriptions")
+      .select(`
+        id,
+        organization_id,
+        project_id,
+        plan_id,
+        status,
+        coverage_module_ids,
+        billing_mode,
+        scope_notes,
+        created_at,
+        reviewed_at,
+        organizations (
+          name
+        )
+      `)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const pulseSubscriptions: PulseSubscriptionRecord[] = (pulseRows ?? []).map((row) => {
+    const org = row.organizations as unknown as { name?: string } | null;
+    return {
+      id: row.id,
+      organizationId: row.organization_id,
+      organizationName: org?.name || "Client Organization",
+      projectId: row.project_id ?? null,
+      planId: row.plan_id as "PULSE_FLEX" | "PULSE_CORE" | "PULSE_PRIME",
+      status: row.status as PulseSubscriptionStatus,
+      coverageModuleIds: Array.isArray(row.coverage_module_ids) ? (row.coverage_module_ids as string[]) : [],
+      billingMode: row.billing_mode || "manual_invoicing_only",
+      scopeNotes: row.scope_notes ?? null,
+      createdAt: row.created_at,
+      reviewedAt: row.reviewed_at ?? null,
+    };
+  });
 
   return (
     <div>
@@ -114,6 +156,8 @@ export default async function AdminSupportPage() {
           )}
         </div>
       </div>
+
+      <AdminPulseOperationsPanel subscriptions={pulseSubscriptions} />
     </div>
   );
 }

@@ -287,11 +287,12 @@ button, a, input, select, textarea { outline-color: var(--cyan); outline-offset:
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-width: 0;
 }
 .pulse-card.featured { border-color: var(--blue); background: var(--surface-2); }
-.pulse-price-block { padding: 1rem; border: 1px solid var(--line); background: var(--bg-deep); border-radius: 4px; display: grid; gap: .6rem; }
+.pulse-price-block { padding: 1rem; border: 1px solid var(--line); background: var(--bg-deep); border-radius: 4px; display: grid; gap: .6rem; min-width: 0; }
 .pulse-modules-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
-.pulse-module-card { border: 1px solid var(--line); background: var(--surface); padding: 1.25rem; border-radius: 6px; }
+.pulse-module-card { border: 1px solid var(--line); background: var(--surface); padding: 1.25rem; border-radius: 6px; min-width: 0; }
 .pulse-module-card h4 { margin: .4rem 0 .35rem; font-size: 1rem; }
 .pulse-module-card p { margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.5; }
 
