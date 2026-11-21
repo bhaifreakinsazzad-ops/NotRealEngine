@@ -1,5 +1,35 @@
-import Link from "next/link";
 import { MarketingShell } from "@/components/marketing-shell";
-import { signup } from "@/app/auth/actions";
+import { SignupForm } from "@/components/signup-form";
+import { supabaseConfigured } from "@/lib/supabase/config";
+import { safeAuthRedirect } from "@/lib/auth-redirect";
 
-export default async function SignupPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) { const { error } = await searchParams; return <MarketingShell><div className="auth-wrap"><div className="auth-panel"><h1>Create a verified account</h1><p>Account verification is required before any private project or organization record can be linked.</p>{error && <div className="error-box">{error}</div>}<form action={signup}><div className="field"><label htmlFor="fullName">Full name</label><input id="fullName" name="fullName" className="input" required minLength={2} autoComplete="name" /></div><div className="field"><label htmlFor="email">Email</label><input id="email" name="email" type="email" className="input" required autoComplete="email" /></div><div className="field"><label htmlFor="password">Password</label><input id="password" name="password" type="password" className="input" required autoComplete="new-password" minLength={10} /></div><button className="btn btn-primary" type="submit">Create account</button></form><div className="auth-links"><Link href="/login">Already have an account?</Link></div></div></div></MarketingShell>; }
+export const dynamic = "force-dynamic";
+
+export default async function SignupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; next?: string }>;
+}) {
+  const params = await searchParams;
+  const safeNext = safeAuthRedirect(params.next);
+  const configured = supabaseConfigured();
+
+  return (
+    <MarketingShell>
+      <div className="auth-wrap">
+        <div className="auth-panel">
+          <h1>Create a verified account</h1>
+          <p>
+            Set up your NRE OFFICE client account to track quotes, orders, milestones, files, and
+            NRE PULSE support securely.
+          </p>
+          <SignupForm
+            isAuthConfigured={configured}
+            initialError={params.error}
+            nextPath={safeNext}
+          />
+        </div>
+      </div>
+    </MarketingShell>
+  );
+}

@@ -355,17 +355,19 @@ button, a, input, select, textarea { outline-color: var(--cyan); outline-offset:
 .summary-row { padding: .9rem 0; border-top: 1px solid var(--line); }
 .summary-row span { display: block; color: var(--muted); font: .69rem var(--font-mono); margin-bottom: .35rem; text-transform: uppercase; }
 .builder-actions { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); flex-wrap: wrap; }
-.error-box { border: 1px solid var(--danger); background: rgba(255, 111, 120, 0.08); color: #FFC3C7; padding: 1rem; margin: 1rem 0; border-radius: 4px; }
-.success-box { border: 1px solid var(--success); background: rgba(69, 212, 131, 0.08); padding: 1.5rem; border-radius: 4px; }
+.error-box { border: 1px solid var(--danger); background: rgba(255, 111, 120, 0.08); color: #FFC3C7; padding: 1rem; margin: 1rem 0; border-radius: 4px; max-width: 100%; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.success-box { border: 1px solid var(--success); background: rgba(69, 212, 131, 0.08); padding: 1.5rem; border-radius: 4px; max-width: 100%; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.error-box code, .success-box code { overflow-wrap: anywhere; word-break: break-word; }
 
 /* --- AUTH & APP SHELL (NRE OFFICE) --- */
-.auth-wrap { min-height: calc(100vh - 68px); display: grid; place-items: center; padding: 4rem 1rem; }
-.auth-panel { width: min(480px, 100%); border: 1px solid var(--line-strong); padding: 2rem; background: var(--surface); border-radius: 6px; }
+.auth-wrap { min-height: calc(100vh - 68px); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 3rem 1rem; }
+.auth-panel { width: min(480px, 100%); max-width: 100%; min-width: 0; border: 1px solid var(--line-strong); padding: 2rem; background: var(--surface); border-radius: 6px; }
+@media (max-width: 480px) { .auth-panel { padding: 1.35rem; } }
 .auth-panel h1 { margin: 0 0 .6rem; font-size: 1.95rem; }
 .auth-panel > p { color: var(--muted); line-height: 1.6; }
 .auth-panel form { margin-top: 1.6rem; }
 .auth-panel .btn { width: 100%; margin-top: .5rem; }
-.auth-links { display: flex; justify-content: space-between; margin-top: 1.25rem; color: var(--cyan); font-size: .83rem; }
+.auth-links { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .75rem; margin-top: 1.25rem; color: var(--cyan); font-size: .83rem; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 244px 1fr; }
 .app-sidebar { border-right: 1px solid var(--line); background: var(--bg-deep); padding: 1.5rem 1rem; }
