@@ -3,15 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
-import { services } from "@/lib/catalog";
+import { resolveProvisionableServiceId } from "@/lib/catalog";
 import { type OrderState, canTransition, orderTransitions } from "@/lib/domain/states";
 import { enqueueServerOutboxEvent, recordServerAuditLog } from "@/lib/supabase/server-events";
-
-const canonicalServiceMap = new Map<string, string>();
-for (const s of services) {
-  canonicalServiceMap.set(s.id, s.id);
-  canonicalServiceMap.set(s.slug, s.id);
-}
 
 const manualSettlementSchema = z.object({
   reference: z.string().trim().min(4, "Settlement reference must be at least 4 characters").max(160),
@@ -312,7 +306,7 @@ export async function initializeProjectFromOrderAction(
     const briefServiceId = briefRel?.service_id;
     const snapshotServiceId = typeof snapshot.serviceId === "string" ? snapshot.serviceId.trim() : "";
     const candidateServiceRef = (briefServiceId || snapshotServiceId || "").trim();
-    const resolvedServiceId = canonicalServiceMap.get(candidateServiceRef);
+    const resolvedServiceId = resolveProvisionableServiceId(candidateServiceRef);
 
     if (!resolvedServiceId) {
       return {

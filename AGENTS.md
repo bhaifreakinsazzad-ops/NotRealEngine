@@ -1,7 +1,8 @@
 # ENGINE//OS repository instructions
 
-- Treat `lib/catalog.ts` and migration seed `202611080002_seed_canonical_services.sql` as one canonical registry: exactly 10 categories and 12 offers. Web Application and PWA are distinct. Automation/integrations are capabilities, not core services.
-- Do not activate checkout, payments, notifications, legal acceptance, or production deployment without explicit owner approval and verified provider configuration.
+- Treat `lib/catalog-v5.ts`, `lib/catalog.ts`, and additive migration `202611210008_catalog_v5_pulse_and_office.sql` as one canonical v5 registry: exactly 22 active services (13 Standalone `S01`–`S13` + 9 Core Technical `S14, S15, S17, S18, S19, S21, S22, S23, S24`), 13 compatible add-ons (`A01, A02, A03, A06, A09, A10, A11, A13, A14, A15, A17, A18, A19`), 3 NRE PULSE plans (`PULSE_FLEX`, `PULSE_CORE`, `PULSE_PRIME`), and 7 PULSE coverage modules (`M01`–`M07`). Retired IDs (`S16`, `S20`, `A04`, `A05`, `A07`, `A08`, `A12`, `A16`, `A20`, `A21`) must never appear publicly. Web Application (`S08`) and PWA (`S09`) remain distinct. Preserve historical `SVC-*` identifiers via archival alias lookups without deleting historical rows.
+- Public BDT launch prices are `Starting From` estimates only (`quote_required`); never expose the legacy BDT 999 campaign in public discovery. NRE PULSE monthly rates are proposed and require explicit founder approval before billing activation.
+- Do not activate checkout, payments, recurring billing, notifications, legal acceptance, or production deployment without explicit owner approval and verified provider configuration.
 - Never use browser storage as the production business database, accept client-supplied roles, expose the Supabase service-role key, or bypass RLS in client code.
 - Commercial calculations use integer minor units. A checkout price must be active, orderable, approved, market-valid, effective, and unambiguous.
 - Quote acceptance must go through the database RPC and preserve an immutable snapshot. Payment state may become `paid` only from a verified idempotent provider event.

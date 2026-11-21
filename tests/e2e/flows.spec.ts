@@ -38,27 +38,26 @@ test.describe("Public Core Pages & Governance", () => {
     }
   });
 
-  test("pricing page displays transparent schedules and governance policy", async ({ page }) => {
+  test("pricing page displays transparent v5 schedules and governance policy", async ({ page }) => {
     await page.goto("/pricing");
-    await expect(page.getByRole("heading", { name: "Commercial clarity before checkout." })).toBeVisible();
-    await expect(page.getByText("All twelve offers remain quote-required.")).toBeVisible();
-    await expect(page.getByText("Current safe mode: guided quotation")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Commercial clarity before commitment." })).toBeVisible();
+    await expect(page.getByText(/All 22 canonical services remain quote-required/i)).toBeVisible();
+    await expect(page.getByText(/Current safe mode: guided quotation/i)).toBeVisible();
     await expect(page.locator("#main").getByRole("link", { name: "Start a project" })).toBeVisible();
   });
 
-  test("services directory lists exactly 10 canonical categories and 12 offers", async ({ page }) => {
+  test("services directory lists 22 canonical v5 services and keeps Web App and PWA distinct", async ({ page }) => {
     await page.goto("/services");
-    await expect(page.getByRole("heading", { name: "Digital services, organized around business outcomes." })).toBeVisible();
-    await expect(page.getByText("twelve distinct offers inside a controlled ten-category registry")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Custom Web Application Development" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "PWA Development" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /22 digital engineering services/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Web Application Development" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Progressive Web App Development" })).toBeVisible();
   });
 
-  test("solution finder renders questions and returns rule-grounded recommendations", async ({ page }) => {
+  test("solution finder renders questions and returns rule-grounded v5 recommendations", async ({ page }) => {
     await page.goto("/solutions");
     await expect(page.getByRole("heading", { name: "Find the service through your business goal." })).toBeVisible();
-    await page.getByRole("button", { name: "Sell products or services online" }).click();
-    await expect(page.getByText("E-commerce / F-commerce Store Development")).toBeVisible();
+    await page.getByRole("button", { name: /Sell products or run a sales funnel/i }).click();
+    await expect(page.getByText(/S05 — E-commerce Website Development/i)).toBeVisible();
     await expect(page.getByRole("link", { name: "Configure this project" })).toBeVisible();
   });
 });

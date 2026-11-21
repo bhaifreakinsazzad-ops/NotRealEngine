@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, AlertCircle, ArrowRight } from "lucide-react";
 import { requireUser } from "@/lib/auth";
+import { resolveServiceLabel } from "@/lib/catalog";
 import { type ProjectState } from "@/lib/domain/states";
 
 export default async function ProjectWorkspacePage({ params }: { params: Promise<{ id: string }> }) {
@@ -56,9 +57,10 @@ export default async function ProjectWorkspacePage({ params }: { params: Promise
     .select("id", { count: "exact", head: true })
     .eq("project_id", id);
 
+  const resolvedService = resolveServiceLabel(project.service_id);
   const totalMilestones = milestones?.length ?? 0;
   const completedMilestones = milestones?.filter((m) => m.state === "complete").length ?? 0;
-  const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
+  const progressPercent = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : null;
 
   const totalReqs = requirements?.length ?? 0;
   const submittedReqs = requirements?.filter((r) => r.response !== null).length ?? 0;
@@ -109,7 +111,7 @@ export default async function ProjectWorkspacePage({ params }: { params: Promise
               </span>
             </div>
             <p className="mono muted" style={{ margin: "0.35rem 0 0", fontSize: "0.82rem" }}>
-              Service: <strong>{project.service_id}</strong> · Order: #{(project.orders as unknown as { id?: string })?.id?.slice(0, 8) || "N/A"}
+              Service: <strong>{resolvedService.id} — {resolvedService.name}</strong> · Order: #{(project.orders as unknown as { id?: string })?.id?.slice(0, 8) || "N/A"}
             </p>
           </div>
 
@@ -200,23 +202,27 @@ export default async function ProjectWorkspacePage({ params }: { params: Promise
       <div className="panel" style={{ marginBottom: "1.5rem" }}>
         <div className="panel-head">
           <h2>Technical Milestones & Delivery Schedule</h2>
-          <span className="mono cyan" style={{ fontSize: "0.82rem" }}>
-            {completedMilestones}/{totalMilestones} Completed ({progressPercent}%)
+          <span className="mono cyan tabular" style={{ fontSize: "0.82rem" }}>
+            {progressPercent !== null
+              ? `${completedMilestones}/${totalMilestones} Verified Milestones (${progressPercent}%)`
+              : "Awaiting milestone schedule"}
           </span>
         </div>
 
         <div className="panel-body">
-          {/* Progress Bar */}
-          <div style={{ height: "6px", background: "var(--surface-3)", borderRadius: "3px", overflow: "hidden", marginBottom: "1.8rem" }}>
-            <div
-              style={{
-                width: `${progressPercent}%`,
-                height: "100%",
-                background: "var(--cyan)",
-                transition: "width 300ms ease"
-              }}
-            />
-          </div>
+          {/* Evidence-backed Progress Bar (rendered only when persisted milestones exist) */}
+          {progressPercent !== null && (
+            <div style={{ height: "6px", background: "var(--surface-3)", borderRadius: "3px", overflow: "hidden", marginBottom: "1.8rem" }}>
+              <div
+                style={{
+                  width: `${progressPercent}%`,
+                  height: "100%",
+                  background: "var(--cyan)",
+                  transition: "width 300ms ease"
+                }}
+              />
+            </div>
+          )}
 
           {/* Milestones List */}
           {milestones && milestones.length > 0 ? (
