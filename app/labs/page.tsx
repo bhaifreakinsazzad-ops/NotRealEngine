@@ -1,77 +1,75 @@
-import { MarketingShell } from "@/components/marketing-shell";
-import { EngineShowcase } from "@/components/engine-showcase";
-import { Sparkles, Cpu, Layers, Activity } from "lucide-react";
 import Link from "next/link";
+import { ShieldCheck, ArrowRight, FlaskConical } from "lucide-react";
+import { MarketingShell } from "@/components/marketing-shell";
+import { NreLabWorkbench } from "@/components/nre-lab-workbench";
+
+export const metadata = {
+  title: "NRE LAB — Free Visitor Planning & Scoping Tools",
+  description:
+    "Use NotRealEngine's free, no-login visitor tools: Starting-Scope & Add-On Estimator, Website Launch Readiness Checklist, Landing Page Blueprint Generator, and App vs PWA Advisor.",
+};
 
 export default function LabsPage() {
   return (
     <MarketingShell>
       <section className="page-hero">
         <div className="shell">
-          <div className="hero-pill">
-            <Cpu size={14} className="cyan" />
-            <span>GRAPHICS & COMPUTE RESEARCH</span>
-          </div>
-          <h1>Labs: interaction patterns & graphics pipelines under evaluation.</h1>
+          <div className="section-code">NRE LAB · FREE VISITOR UTILITY SUITE</div>
+          <h1>Plan your build before spending a single taka.</h1>
           <p>
-            Explore the core computational visualization engine behind NOTREAL ENGINE. Demonstrating real-time spatial dynamics, progressive web rendering, and client-side simulation.
+            Four practical, deterministic engineering tools built directly on NotRealEngine&apos;s
+            Canonical Catalog v5. No login required, no third-party popups, and every generated
+            blueprint is editable and exportable for free.
           </p>
         </div>
       </section>
 
-      {/* Engine Visual Showcase in Labs */}
       <section className="section">
         <div className="shell">
-          <div className="section-head">
-            <div>
-              <div className="section-code">EXPERIMENTAL BENCHMARK // ENGINE REEL</div>
-              <h2>Active Graphics & Simulation Core</h2>
-            </div>
-            <p>
-              4K 60FPS high-throughput rendering pipeline. Evaluated for low-latency web delivery and responsive interactive framing.
-            </p>
-          </div>
-
-          <EngineShowcase
-            title="PHYSICS & SHADER RUNTIME (BUILD 2026.11)"
-            subtitle="Demonstrating dynamic illumination, volumetric particles, and high-framerate rendering."
-          />
-
-          <div className="labs-spec-grid">
-            <div className="spec-card">
-              <Activity size={20} className="cyan" />
-              <h4>Adaptive Frame Streaming</h4>
-              <p>Hardware-accelerated decoding with automatic progressive fallbacks for multi-device performance.</p>
-            </div>
-            <div className="spec-card">
-              <Layers size={20} className="gold" />
-              <h4>Multi-Layered Shaders</h4>
-              <p>Zero layout-shift container architecture adhering to modern web performance standards.</p>
-            </div>
-            <div className="spec-card">
-              <Sparkles size={20} className="cyan" />
-              <h4>Zero Bloat Footprint</h4>
-              <p>Lazy-loaded media streams defer network overhead until viewport intersection.</p>
-            </div>
-          </div>
+          <NreLabWorkbench />
         </div>
       </section>
 
       <section className="section section-dark">
-        <div className="shell section-head" style={{ marginBottom: 0 }}>
-          <div>
-            <h2>Interested in applying our graphics or systems engine?</h2>
-            <p style={{ marginTop: "1rem" }}>
-              Explore our canonical services or discuss custom engineering with our leads.
-            </p>
+        <div className="shell">
+          <div className="labs-spec-grid">
+            <div className="spec-card">
+              <FlaskConical size={22} className="cyan" />
+              <h4>Deterministic Catalog v5 Rules</h4>
+              <p>
+                Every Starting From figure and add-on compatibility check runs against the same
+                authoritative v5 catalog used by our engineering team—zero invented prices.
+              </p>
+            </div>
+            <div className="spec-card">
+              <ShieldCheck size={22} className="cyan" />
+              <h4>Zero Login Walls or Popup Prompts</h4>
+              <p>
+                Visitors can run tools, customize Markdown drafts, and download outputs freely
+                without creating accounts or authenticating external browser services.
+              </p>
+            </div>
+            <div className="spec-card">
+              <ArrowRight size={22} className="cyan" />
+              <h4>Seamless Project Builder Handoff</h4>
+              <p>
+                When you are ready for human engineering review, transfer your recommended service
+                directly into the 6-step Project Builder for a written quotation.
+              </p>
+            </div>
           </div>
-          <div className="hero-actions">
-            <Link className="btn btn-primary" href="/services">
-              View Canonical Services
-            </Link>
-            <Link className="btn" href="/contact">
-              Consult With Engineering
-            </Link>
+
+          <div className="integrity-note">
+            <ShieldCheck size={20} className="gold" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <strong>Transparency note:</strong> NRE LAB outputs are planning aids and non-binding{" "}
+              <strong>Starting From</strong> baselines. Need human review on an existing website or
+              complex architecture?{" "}
+              <Link href="/contact" className="cyan" style={{ textDecoration: "underline" }}>
+                Contact our engineering desk
+              </Link>
+              .
+            </div>
           </div>
         </div>
       </section>
